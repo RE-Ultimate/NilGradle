@@ -1,0 +1,80 @@
+plugins {
+	id 'com.github.johnrengelman.shadow' version '7.1.2'
+    id 'java-gradle-plugin'
+    id 'maven-publish'
+}
+
+sourceCompatibility = 8
+targetCompatibility = 8
+
+group = 'com.unascribed.nilgradle'
+version = '1.0'
+
+repositories {
+	mavenCentral()
+	maven {
+		url 'https://maven.fabricmc.net/'
+	}
+	maven {
+		url 'https://oss.sonatype.org/content/repositories/snapshots/'
+	}
+}
+
+dependencies {
+	compileOnly 'com.grack:nanojson:1.6'
+	shadow 'com.grack:nanojson:1.6'
+	
+	compileOnly 'org.ow2.asm:asm:9.2'
+	shadow 'org.ow2.asm:asm:9.2'
+	compileOnly 'org.ow2.asm:asm-tree:9.2'
+	shadow 'org.ow2.asm:asm-tree:9.2'
+	compileOnly 'org.ow2.asm:asm-commons:9.2'
+	shadow 'org.ow2.asm:asm-commons:9.2'
+	
+	compileOnly 'org.cadixdev:lorenz:0.5.6'
+	shadow 'org.cadixdev:lorenz:0.5.6'
+	compileOnly 'org.cadixdev:lorenz-asm:0.5.6'
+	shadow 'org.cadixdev:lorenz-asm:0.5.6'
+	compileOnly 'org.cadixdev:lorenz-io-proguard:0.5.6'
+	shadow 'org.cadixdev:lorenz-io-proguard:0.5.6'
+	compileOnly 'net.fabricmc:lorenz-tiny:3.0.0'
+	shadow 'net.fabricmc:lorenz-tiny:3.0.0'
+	
+	compileOnly 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
+	shadow 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
+}
+
+gradlePlugin {
+	plugins {
+		nilgradle {
+			id = 'com.unascribed.nilgradle'
+			implementationClass = 'com.unascribed.nilgradle.NilPlugin'
+		}
+	}
+}
+
+afterEvaluate {
+	publishing {
+		publications {
+			nilgradlePluginMarkerMaven.artifact shadowJar
+		}
+	}
+}
+
+jar {
+	classifier 'slim'
+}
+
+shadowJar {
+	classifier ''
+	configurations = [project.configurations.shadow]
+	
+	relocate 'me.jamiemansfield', 'com.unascribed.nilgradle.repackage.me.jamiemansfield'
+	relocate 'com.grack', 'com.unascribed.nilgradle.repackage.com.grack'
+	relocate 'net.fabricmc', 'com.unascribed.nilgradle.repackage.net.fabricmc'
+	relocate 'org.cadixdev', 'com.unascribed.nilgradle.repackage.org.cadixdev'
+	relocate 'org.objectweb', 'com.unascribed.nilgradle.repackage.org.objectweb'
+}
+
+tasks.build.dependsOn tasks.shadowJar
+

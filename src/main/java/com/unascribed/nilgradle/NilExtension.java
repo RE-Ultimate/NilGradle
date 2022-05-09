@@ -1,0 +1,86 @@
+package com.unascribed.nilgradle;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URL;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+import org.codehaus.groovy.runtime.ResourceGroovyMethods;
+import org.gradle.api.Project;
+import org.gradle.api.artifacts.Dependency;
+
+import com.grack.nanojson.JsonParser;
+import com.grack.nanojson.JsonParserException;
+
+public abstract class NilExtension {
+
+	private Project project;
+	
+	private static final Pattern SAFE_PATTERN = Pattern.compile("^[a-zA-Z0-9._-]+$");
+	
+	public Dependency minecraft(String version, String side) throws JsonParserException, IOException {
+		return project.getDependencies().create("com.mojang.launcher:"+side+":"+findLauncherDownload(version, side));
+	}
+	
+	public Dependency mojmap(String version, String side) throws JsonParserException, IOException {
+		return project.getDependencies().create("com.mojang.launcher:"+side+":"+findLauncherDownload(version, side+"_mappings")+"@txt");
+	}
+
+	private String findLauncherDownload(String version, String artifact) throws JsonParserException, IOException {
+		if (!SAFE_PATTERN.matcher(version).matches()) throw new IllegalArgumentException("Bad version: "+version);
+		if (!SAFE_PATTERN.matcher(artifact).matches()) throw new IllegalArgumentException("Bad side: "+version);
+		File cache = new File(project.getGradle().getGradleUserHomeDir(), "caches/nilgradle/version-hashes/"+version+"/"+artifact+".sha1");
+		String sha1 = null;
+		if (cache.exists()) {
+			String s = ResourceGroovyMethods.getText(cache, "UTF-8").trim();
+			if (s.length() == 40) {
+				sha1 = s;
+			}
+		}
+		if (sha1 == null) {
+			URL manifest = URI.create("https://launchermeta.mojang.com/mc/game/version_manifest.json").toURL();
+			String versionManifest = null;
+			try (InputStream in = manifest.openStream()) {
+				// I tried to do this using the streaming API for less inefficiency,
+				// but there's no docs and I couldn't get it to work
+				Map<String, Object> map = JsonParser.object().from(in);
+				List<Map<String, Object>> li = (List<Map<String, Object>>) map.get("versions");
+				for (Map<String, Object> en : li) {
+					if (version.equals(en.get("id"))) {
+						versionManifest = (String)en.get("url");
+						break;
+					}
+				}
+			}
+			if (versionManifest == null) {
+				throw new IllegalArgumentException("Cannot find version "+version+" in launcher");
+			}
+			URL versionManifestUrl = new URL(versionManifest);
+			try (InputStream in = versionManifestUrl.openStream()) {
+				Map<String, Object> map = JsonParser.object().from(in);
+				Map<String, Object> dl = (Map<String, Object>)((Map<String, Object>) map.get("downloads")).get(artifact);
+				sha1 = (String)dl.get("sha1");
+			}
+			cache.getParentFile().mkdirs();
+			ResourceGroovyMethods.write(cache, sha1, "UTF-8");
+		}
+		return sha1;
+	}
+
+	public Dependency minecraftArchive(String era, String version) {
+		return project.getDependencies().create("org.archive.minecraft-je-"+era+":"+version);
+	}
+
+	public Dependency mcpArchive(String version, String mcpVersion) {
+		return project.getDependencies().create("org.archive.minecraftcoderpack:"+version+":"+mcpVersion+"@zip");
+	}
+	
+	public void setProject(Project project) {
+		this.project = project;
+	}
+	
+}
