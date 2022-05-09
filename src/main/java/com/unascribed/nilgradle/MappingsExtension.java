@@ -1,37 +1,32 @@
 package com.unascribed.nilgradle;
 
 import org.gradle.api.Project;
-import org.gradle.api.artifacts.Configuration;
 
 public abstract class MappingsExtension {
 
 	private Project project;
 	
-	private Configuration targetCfg;
-	private Configuration workCfg;
-	
+	private boolean setViaAlready = false;
 	private boolean setWorkAlready = false;
 	
 	public void target(Object dep) {
-		project.getDependencies().add(targetCfg.getName(), dep);
+		project.getDependencies().add("nilInternalTargetMapping", dep);
+	}
+	
+	public void via(Object dep) {
+		if (setWorkAlready) throw new IllegalStateException("Cannot specify multiple via mappings");
+		setViaAlready = true;
+		project.getDependencies().add("nilInternalViaMapping", dep);
 	}
 	
 	public void work(Object dep) {
 		if (setWorkAlready) throw new IllegalStateException("Cannot specify multiple work mappings");
 		setWorkAlready = true;
-		project.getDependencies().add(workCfg.getName(), dep);
+		project.getDependencies().add("nilInternalWorkMapping", dep);
 	}
 
 	public void setProject(Project project) {
 		this.project = project;
-	}
-	
-	public void setTargetConfiguration(Configuration cfg) {
-		targetCfg = cfg;
-	}
-
-	public void setWorkConfiguration(Configuration cfg) {
-		workCfg = cfg;
 	}
 	
 }

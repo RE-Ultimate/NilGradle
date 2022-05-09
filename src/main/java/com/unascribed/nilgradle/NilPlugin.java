@@ -116,6 +116,10 @@ public class NilPlugin implements Plugin<Project> {
 			c.setVisible(false);
 			c.setCanBeConsumed(false);
 		});
+		Configuration viaMappingCfg = project.getConfigurations().create("nilInternalViaMapping", c -> {
+			c.setVisible(false);
+			c.setCanBeConsumed(false);
+		});
 		Configuration workMappingCfg = project.getConfigurations().create("nilInternalWorkMapping", c -> {
 			c.setVisible(false);
 			c.setCanBeConsumed(false);
@@ -125,6 +129,7 @@ public class NilPlugin implements Plugin<Project> {
 		project.getConfigurations().add(gameCfg);
 		project.getConfigurations().add(remappedGameCfg);
 		project.getConfigurations().add(targetMappingCfg);
+		project.getConfigurations().add(viaMappingCfg);
 		project.getConfigurations().add(workMappingCfg);
 		
 		project.getConfigurations().getByName("compileClasspath", compile -> {
@@ -137,8 +142,6 @@ public class NilPlugin implements Plugin<Project> {
 		
 		MappingsExtension mappingsExt = project.getExtensions().create("mappings", MappingsExtension.class);
 		mappingsExt.setProject(project);
-		mappingsExt.setTargetConfiguration(targetMappingCfg);
-		mappingsExt.setWorkConfiguration(workMappingCfg);
 		
 		project.afterEvaluate(unused -> {
 			Set<File> files = gameCfg.resolve();
@@ -151,7 +154,20 @@ public class NilPlugin implements Plugin<Project> {
 				if (workFiles.size() > 1) throw new IllegalStateException("Multiple work mappings present!");
 				File workFile = workFiles.iterator().next();
 				log.info("Detecting and loading work mappings from "+workFile);
-				MappingSet work = detectAndLoad(workFile);
+				MappingSet workRaw = detectAndLoad(workFile);
+				MappingSet work;
+				
+				Set<File> viaFiles = viaMappingCfg.resolve();
+				if (!viaFiles.isEmpty()) {
+					if (viaFiles.size() > 1) throw new IllegalStateException("Multiple work mappings present!");
+					File viaFile = viaFiles.iterator().next();
+					log.info("Detecting and loading via mappings from "+viaFile);
+					MappingSet via = detectAndLoad(viaFile);
+					work = MappingSetMerger.create(via, workRaw).merge();
+				} else {
+					work = workRaw;
+				}
+				
 				saveMappings(work, "work.tsrg");
 				for (File tgtFile : targetMappingCfg.resolve()) {
 					MappingSet tgt = detectAndLoad(tgtFile);
