@@ -5,9 +5,9 @@ import java.util.Map;
 
 import org.cadixdev.lorenz.MappingSet;
 
-public class MCPFieldsCSVReader extends CSVMappingsReader {
+public class LegacyMCPClassesCSVReader extends CSVMappingsReader {
 
-	public MCPFieldsCSVReader(final Reader reader) {
+	public LegacyMCPClassesCSVReader(final Reader reader) {
 		super(reader, Processor::new);
 	}
 	
@@ -19,9 +19,8 @@ public class MCPFieldsCSVReader extends CSVMappingsReader {
 
 		@Override
 		protected void accept(Map<String, String> entries) {
-			this.mappings.getOrCreateClassMapping(entries.get("classnotch"))
-				.getOrCreateFieldMapping(entries.get("notch"), entries.get("notchsig"))
-					.setDeobfuscatedName(entries.get("name"));
+			this.mappings.getOrCreateClassMapping(entries.get("notch"))
+				.setDeobfuscatedName(entries.get("name"));
 		}
 		
 	}

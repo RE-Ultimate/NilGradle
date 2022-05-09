@@ -5,9 +5,9 @@ import java.util.Map;
 
 import org.cadixdev.lorenz.MappingSet;
 
-public class MCPMethodsCSVReader extends CSVMappingsReader {
+public class LegacyMCPMethodsCSVReader extends CSVMappingsReader {
 
-	public MCPMethodsCSVReader(final Reader reader) {
+	public LegacyMCPMethodsCSVReader(final Reader reader) {
 		super(reader, Processor::new);
 	}
 	

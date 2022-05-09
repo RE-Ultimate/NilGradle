@@ -7,23 +7,41 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PushbackInputStream;
 import java.io.PushbackReader;
+import java.io.StringReader;
 import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.jar.JarFile;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 import org.cadixdev.atlas.FixedAtlas;
+import org.cadixdev.atlas.FixedCompositeClassProvider;
 import org.cadixdev.bombe.analysis.InheritanceProvider;
+import org.cadixdev.bombe.asm.analysis.ClassProviderInheritanceProvider;
+import org.cadixdev.bombe.jar.ClassProvider;
+import org.cadixdev.bombe.jar.JarFileClassProvider;
+import org.cadixdev.bombe.jar.JarManifestEntry;
 import org.cadixdev.bombe.jar.asm.JarEntryRemappingTransformer;
+import org.cadixdev.bombe.type.signature.FieldSignature;
+import org.cadixdev.bombe.type.signature.MethodSignature;
 import org.cadixdev.lorenz.MappingSet;
 import org.cadixdev.lorenz.asm.LorenzRemapper;
 import org.cadixdev.lorenz.io.proguard.ProGuardReader;
@@ -32,15 +50,31 @@ import org.cadixdev.lorenz.io.srg.tsrg.TSrgReader;
 import org.cadixdev.lorenz.io.srg.tsrg.TSrgWriter;
 import org.cadixdev.lorenz.merge.MappingSetMerger;
 import org.cadixdev.lorenz.model.ClassMapping;
+import org.cadixdev.lorenz.model.FieldMapping;
+import org.cadixdev.lorenz.model.InnerClassMapping;
+import org.cadixdev.lorenz.model.Mapping;
+import org.cadixdev.lorenz.model.MethodMapping;
 import org.cadixdev.lorenz.model.TopLevelClassMapping;
+import org.gradle.api.Action;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
+import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.plugins.JavaPlugin;
+import org.gradle.api.tasks.compile.JavaCompile;
+import org.gradle.language.jvm.tasks.ProcessResources;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.commons.ClassRemapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.grack.nanojson.JsonArray;
+import com.grack.nanojson.JsonObject;
+import com.grack.nanojson.JsonWriter;
 
 import net.fabricmc.lorenztiny.TinyMappingsReader;
 import net.fabricmc.mapping.tree.TinyMappingFactory;
@@ -141,6 +175,15 @@ public class NilPlugin implements Plugin<Project> {
 		
 		MappingsExtension mappingsExt = project.getExtensions().create("mappings", MappingsExtension.class);
 		mappingsExt.setProject(project);
+
+		File mappingsJsonOutFile = new File(project.getBuildDir(), "nil/output/mappings.json");
+		ProcessResources process = (ProcessResources)project.getTasks().getByName("processResources");
+		// BAD
+		process.getInputs().property("cachebuster", UUID.randomUUID().toString());
+		process.from(mappingsJsonOutFile, copy -> {
+			copy.into("META-INF/nil");
+		});
+		
 		
 		project.afterEvaluate(unused -> {
 			Set<File> files = gameCfg.resolve();
@@ -149,10 +192,10 @@ public class NilPlugin implements Plugin<Project> {
 			File game = files.iterator().next();
 			Map<String, MappingSet> targetMappings = new HashMap<>();
 			for (ResolvedArtifact a : targetMappingCfg.getResolvedConfiguration().getResolvedArtifacts()) {
-				MappingSet tgt = detectAndLoad(a.getFile());
+				MappingSet tgt = detectAndLoad(a.getFile(), !"srg".equals(a.getClassifier()));
 				ModuleVersionIdentifier v = a.getModuleVersion().getId();
 				String name = v.getGroup()+"."+v.getName()+"-"+v.getVersion();
-				saveMappings(tgt, "target/raw/"+name+".tsrg");
+				saveDebugMappings(tgt, "target/raw/"+name+".tsrg");
 				targetMappings.put(name, tgt);
 			}
 			Set<File> workFiles = workMappingCfg.resolve();
@@ -173,10 +216,10 @@ public class NilPlugin implements Plugin<Project> {
 				} else {
 					work = workRaw;
 				}
-				saveMappings(work, "work.tsrg");
+				saveDebugMappings(work, "work.tsrg");
 				for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
 					MappingSet workToTarget = MappingSetMerger.create(work.reverse(), en.getValue()).merge();
-					saveMappings(workToTarget, "target/fromWork/"+en.getKey()+".tsrg");
+					saveDebugMappings(workToTarget, "target/fromWork/"+en.getKey()+".tsrg");
 					en.setValue(workToTarget);
 				}
 				File cache = new File(project.getBuildDir(), "nil/cache/remappedGame.jar");
@@ -198,7 +241,17 @@ public class NilPlugin implements Plugin<Project> {
 										return name;
 									}
 								}
-							});
+							}) {
+								@Override
+								public JarManifestEntry transform(final JarManifestEntry entry) {
+									try {
+										return super.transform(entry);
+									} catch (NullPointerException e) {
+										// Main-Class is missing
+										return entry;
+									}
+								}
+							};
 						});
 						cache.getParentFile().mkdirs();
 						atlas.run(game.toPath(), cache.toPath());
@@ -207,11 +260,139 @@ public class NilPlugin implements Plugin<Project> {
 					}
 				}
 				remappedGameCfg.getDependencies().add(project.getDependencies().create("nilgradle.dynamic:remappedGame"));
+				targetMappings.put("default", work.reverse());
 			} else {
 				// Don't need to remap
 				remappedGameCfg.getDependencies().addAll(gameCfg.getDependencies());
 			}
+			
+			if (!targetMappings.isEmpty()) {
+				// if this is a lambda, Gradle yells
+				// https://docs.gradle.org/7.4.2/userguide/validation_problems.html#implementation_unknown
+				process.doFirst(new Action<Task>() {
+					@Override
+					public void execute(Task task) {
+						mappingsJsonOutFile.getParentFile().mkdirs();
+						Path classDir = ((JavaCompile)project.getTasks().getByName("compileJava")).getDestinationDirectory().get().getAsFile().toPath();
+						if (Files.exists(classDir)) {
+							List<ClassProvider> providers = new ArrayList<>();
+							for (File f : project.getConfigurations().getByName("compileClasspath").resolve()) {
+								try {
+									providers.add(new JarFileClassProvider(new JarFile(f)));
+								} catch (IOException e) {
+									log.warn("Error reading "+f, e);
+								}
+							}
+							providers.add(new DirectoryClassProvider(classDir));
+							FixedCompositeClassProvider provider = new FixedCompositeClassProvider(providers);
+							InheritanceProvider ip = new ClassProviderInheritanceProvider(Opcodes.ASM9, provider);
+							JsonObject out = new JsonObject();
+							for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
+								for (TopLevelClassMapping tlcm : en.getValue().getTopLevelClassMappings()) {
+									completeRecursively(tlcm, ip);
+								}
+								TrackingLorenzRemapper re = new TrackingLorenzRemapper(en.getValue(), ip);
+								try {
+									Files.walkFileTree(classDir, new SimpleFileVisitor<Path>() {
+
+										@Override
+										public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+											if (file.getFileName().toString().endsWith(".class")) {
+												try (InputStream in = Files.newInputStream(file)) {
+													ClassReader reader = new ClassReader(in);
+													ClassWriter cw = new ClassWriter(reader, 0);
+													ClassRemapper remapper = new ClassRemapper(cw, re);
+													reader.accept(remapper, 0);
+													// we don't actually want the class data, but
+													// linking a ClassReader to a ClassWriter causes
+													// it to properly visit code, which is necessary
+													// for us to generate a complete mapping
+													cw.toByteArray();
+												}
+											}
+											return FileVisitResult.CONTINUE;
+										}
+
+									});
+								} catch (IOException e) {
+									log.warn("Error while detecting used mappings for target "+en.getKey(), e);
+								}
+								out.put(en.getKey(), toJson(en.getValue(), re.getUsedMappings()::contains));
+							}
+							try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
+								JsonWriter.indent("\t").on(os).object(out).done();
+							} catch (IOException e) {
+								log.warn("Error while writing mappings", e);
+							}
+						} else {
+							// no code, no mappings
+							try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
+								os.write("{}".getBytes(StandardCharsets.UTF_8));
+							} catch (IOException e) {
+								log.warn("Error while writing mappings", e);
+							}
+						}
+					}
+				});
+			}
 		});
+	}
+
+	private JsonObject toJson(MappingSet mappings, Predicate<Mapping<?, ?>> filter) {
+		JsonObject obj = new JsonObject();
+		JsonArray classes = new JsonArray();
+		for (TopLevelClassMapping tlcm : mappings.getTopLevelClassMappings()) {
+			if (filter.test(tlcm)) {
+				JsonObject clazz = toJson(tlcm, filter);
+				if (clazz != null) classes.add(clazz);
+			}
+		}
+		obj.put("classes", classes);
+		return obj;
+	}
+
+	private JsonObject toJson(ClassMapping<?, ?> cm, Predicate<Mapping<?, ?>> filter) {
+		JsonObject obj = new JsonObject();
+		JsonArray inner = new JsonArray();
+		for (InnerClassMapping icm : cm.getInnerClassMappings()) {
+			if (filter.test(icm)) {
+				JsonObject en = toJson(icm, filter);
+				if (en != null) inner.add(en);
+			}
+		}
+		if (!inner.isEmpty()) obj.put("inner-classes", inner);
+		JsonObject methods = new JsonObject();
+		for (MethodMapping mm : cm.getMethodMappings()) {
+			if (filter.test(mm)) {
+				String from = toString(mm.getSignature());
+				String to = toString(mm.getDeobfuscatedSignature());
+				if (from.equals(to)) continue;
+				methods.put(from, to);
+			}
+		}
+		if (!methods.isEmpty()) obj.put("methods", methods);
+		JsonObject fields = new JsonObject();
+		for (FieldMapping fm : cm.getFieldMappings()) {
+			if (filter.test(fm)) {
+				String from = toString(fm.getSignature());
+				String to = toString(fm.getDeobfuscatedSignature());
+				if (from.equals(to)) continue;
+				fields.put(from, to);
+			}
+		}
+		if (!fields.isEmpty()) obj.put("fields", fields);
+		if (cm.getFullObfuscatedName().equals(cm.getFullDeobfuscatedName()) && obj.isEmpty()) return null;
+		obj.put("from", cm.getFullObfuscatedName());
+		obj.put("to", cm.getFullDeobfuscatedName());
+		return obj;
+	}
+
+	private String toString(FieldSignature signature) {
+		return signature.getName()+signature.getType().map(t -> ":"+t).orElse("");
+	}
+
+	private String toString(MethodSignature signature) {
+		return signature.toJvmsIdentifier();
 	}
 
 	private static void completeRecursively(ClassMapping<?, ?> cm, InheritanceProvider inh) {
@@ -221,7 +402,7 @@ public class NilPlugin implements Plugin<Project> {
 		}
 	}
 	
-	private void saveMappings(MappingSet mappings, String filename) {
+	private void saveDebugMappings(MappingSet mappings, String filename) {
 		File file = new File(project.getBuildDir(), "nil/debug/mappings/"+filename);
 		file.getParentFile().mkdirs();
 		try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
@@ -235,17 +416,24 @@ public class NilPlugin implements Plugin<Project> {
 	private static final Slice TSRG2_HEADER = Slice.parse("[tsrg2]");
 	private static final Slice SRG_HEADER = Slice.parse("[PK: ]");
 	private static final Slice RETROGUARD_HEADER = Slice.parse("[.option ]");
-	private static final Slice MCP_CSV_HEADER = Slice.parse("[\"name\",\"notch\"]");
 
 	private MappingSet detectAndLoad(File file) {
+		return detectAndLoad(file, true);
+	}
+	
+	private MappingSet detectAndLoad(File file, boolean resolveTriplicate) {
 		try {
-			return detectAndLoad(new FileInputStream(file));
+			return detectAndLoad(new FileInputStream(file), resolveTriplicate);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
 	}
 	
 	private MappingSet detectAndLoad(InputStream rawIn) {
+		return detectAndLoad(rawIn, true);
+	}
+	
+	private MappingSet detectAndLoad(InputStream rawIn, boolean resolveTriplicate) {
 		try (PushbackInputStream in = new PushbackInputStream(rawIn, 32)) {
 			int testByte = in.read();
 			if (testByte == -1) {
@@ -256,7 +444,10 @@ public class NilPlugin implements Plugin<Project> {
 				log.info("Examining ZIP file");
 				ZipInputStream zip = new ZipInputStream(in);
 				ZipEntry ze;
-				MappingSet mcpMultipart = null;
+				MappingSet mcpClasses = null;
+				String mcpSrg = null;
+				String mcpMethods = null;
+				String mcpFields = null;
 				while ((ze = zip.getNextEntry()) != null) {
 					if ("config/joined.tsrg".equals(ze.getName())) {
 						log.info("Discovered mcp_config joined.tsrg");
@@ -266,26 +457,33 @@ public class NilPlugin implements Plugin<Project> {
 						return detectAndLoad(zip);
 					} else if ("conf/client.srg".equals(ze.getName())) {
 						log.info("Discovered legacy MCP client.srg");
-						return detectAndLoad(zip);
+						if (resolveTriplicate) {
+							mcpSrg = getTextWithoutClosing(zip);
+						} else {
+							return detectAndLoad(zip);
+						}
 					} else if ("conf/minecraft.rgs".equals(ze.getName())) {
 						log.info("Discovered legacy MCP minecraft.rgs");
 						return detectAndLoad(zip);
 					} else if ("conf/classes.csv".equals(ze.getName())) {
 						log.info("Discovered legacy MCP classes.csv");
-						if (mcpMultipart == null) mcpMultipart = MappingSet.create();
-						new MCPClassesCSVReader(new InputStreamReader(zip, StandardCharsets.UTF_8)).read(mcpMultipart);
+						mcpClasses = new LegacyMCPClassesCSVReader(new InputStreamReader(zip, StandardCharsets.UTF_8)).read();
 					} else if ("conf/methods.csv".equals(ze.getName())) {
 						log.info("Discovered legacy MCP methods.csv");
-						if (mcpMultipart == null) mcpMultipart = MappingSet.create();
-						new MCPMethodsCSVReader(new InputStreamReader(zip, StandardCharsets.UTF_8)).read(mcpMultipart);
+						mcpMethods = getTextWithoutClosing(zip);
 					} else if ("conf/fields.csv".equals(ze.getName())) {
 						log.info("Discovered legacy MCP fields.csv");
-						if (mcpMultipart == null) mcpMultipart = MappingSet.create();
-						new MCPFieldsCSVReader(new InputStreamReader(zip, StandardCharsets.UTF_8)).read(mcpMultipart);
+						mcpFields = getTextWithoutClosing(zip);
 					}
 				}
 				zip.close();
-				if (mcpMultipart != null) return mcpMultipart;
+				if (mcpSrg != null) {
+					return new MiddleMCPTriplicateReader(new StringReader(mcpSrg), mcpFields, mcpMethods).read();
+				} else if (mcpClasses != null) {
+					new LegacyMCPMethodsCSVReader(new StringReader(mcpMethods)).read(mcpClasses);
+					new LegacyMCPFieldsCSVReader(new StringReader(mcpFields)).read(mcpClasses);
+					return mcpClasses;
+				}
 				throw new IllegalArgumentException("Cannot find mappings inside ZIP");
 			} else if (startsWith(in, TINYv1_HEADER)) {
 				log.info("Discovered tinyv1");
@@ -304,9 +502,6 @@ public class NilPlugin implements Plugin<Project> {
 			} else if (startsWith(in, RETROGUARD_HEADER)) {
 				log.info("Discovered retroguard");
 				return new RetroguardReader(new BufferedReader(new InputStreamReader(in))).read();
-			} else if (startsWith(in, MCP_CSV_HEADER)) {
-				log.info("Discovered retroguard");
-				return new MCPClassesCSVReader(new BufferedReader(new InputStreamReader(in))).read();
 			} else {
 				// well, now we're down to formats with no headers...
 				
@@ -334,6 +529,18 @@ public class NilPlugin implements Plugin<Project> {
 		}
 	}
 	
+	private String getTextWithoutClosing(InputStream in) throws IOException {
+		BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+		StringBuilder out = new StringBuilder();
+		char[] buf = new char[8192];
+		while (true) {
+			int read = reader.read(buf);
+			if (read < 0) break;
+			out.append(buf, 0, read);
+		}
+		return out.toString();
+	}
+
 	private MappingSet load(TinyTree tree) throws IOException {
 		List<String> namespaces = tree.getMetadata().getNamespaces();
 		return new TinyMappingsReader(tree, namespaces.get(0), namespaces.get(namespaces.size()-1)).read();

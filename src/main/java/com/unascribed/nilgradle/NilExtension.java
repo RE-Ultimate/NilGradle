@@ -78,6 +78,10 @@ public abstract class NilExtension {
 	public Dependency mcpArchive(String version, String mcpVersion) {
 		return project.getDependencies().create("org.archive.minecraftcoderpack:"+version+":"+mcpVersion+"@zip");
 	}
+
+	public Dependency mcpArchiveSrg(String version, String mcpVersion) {
+		return project.getDependencies().create("org.archive.minecraftcoderpack:"+version+":"+mcpVersion+":srg@zip");
+	}
 	
 	public void setProject(Project project) {
 		this.project = project;
