@@ -13,13 +13,9 @@ import java.io.PushbackReader;
 import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.UUID;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -35,7 +31,6 @@ import org.cadixdev.lorenz.io.srg.tsrg.TSrgWriter;
 import org.cadixdev.lorenz.merge.MappingSetMerger;
 import org.cadixdev.lorenz.model.ClassMapping;
 import org.cadixdev.lorenz.model.TopLevelClassMapping;
-import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
@@ -103,9 +98,9 @@ public class NilPlugin implements Plugin<Project> {
 		
 		project.getRepositories().flatDir((repo) -> {
 			repo.setName("NilGradle: Dynamic outputs");
-			repo.dir(new File(project.getGradle().getGradleUserHomeDir(), "caches/nilgradle/repo/remappedGame"));
+			repo.dir(new File(project.getBuildDir(), "nil/cache"));
 			repo.content((desc) -> {
-				desc.includeGroup("nilgradle.remappedGame");
+				desc.includeGroup("nilgradle.dynamic");
 			});
 		});
 		
@@ -175,20 +170,8 @@ public class NilPlugin implements Plugin<Project> {
 					MappingSet workToTarget = MappingSetMerger.create(work.reverse(), tgt).merge();
 					saveMappings(workToTarget, "target/fromWork/"+tgtFile.getName()+".tsrg");
 				}
-				String sha256 = null;
-				File cache = new File(project.getBuildDir(), "nil/cache/remappedGame.sha256");
-				if (cache.exists()) {
-					String s;
-					try {
-						s = ResourceGroovyMethods.getText(cache, "UTF-8").trim();
-					} catch (IOException e) {
-						throw new UncheckedIOException(e);
-					}
-					if (s.length() == 64) {
-						sha256 = s;
-					}
-				}
-				if (sha256 == null) {
+				File cache = new File(project.getBuildDir(), "nil/cache/remappedGame.jar");
+				if (!cache.exists()) {
 					System.out.println("Remapping game...");
 					try (FixedAtlas atlas = new FixedAtlas()) {
 						atlas.getClasspath().add(game.toPath());
@@ -208,35 +191,13 @@ public class NilPlugin implements Plugin<Project> {
 								}
 							});
 						});
-						File out = new File(project.getGradle().getGradleUserHomeDir(), "caches/nilgradle/tmp/"+UUID.randomUUID()+".jar");
-						out.getParentFile().mkdirs();
-						atlas.run(game.toPath(), out.toPath());
-						MessageDigest md = MessageDigest.getInstance("SHA-256");
-						try (InputStream in = new FileInputStream(out)) {
-							byte[] buf = new byte[4096];
-							while (true) {
-								int read = in.read(buf);
-								if (read < 0) break;
-								md.update(buf, 0, read);
-							}
-						}
-						byte[] digest = md.digest();
-						String hex = new Slice(digest).toHexString();
-						File fin = new File(project.getGradle().getGradleUserHomeDir(), "caches/nilgradle/repo/remappedGame/"+hex+".jar");
-						fin.getParentFile().mkdirs();
-						Files.move(out.toPath(), fin.toPath());
-						sha256 = hex;
 						cache.getParentFile().mkdirs();
-						try (Writer w = new OutputStreamWriter(new FileOutputStream(cache), StandardCharsets.UTF_8)) {
-							w.write(hex.toCharArray());
-						}
+						atlas.run(game.toPath(), cache.toPath());
 					} catch (IOException e) {
 						throw new UncheckedIOException(e);
-					} catch (NoSuchAlgorithmException e) {
-						throw new AssertionError(e);
 					}
 				}
-				remappedGameCfg.getDependencies().add(project.getDependencies().create("nilgradle.remappedGame:"+sha256));
+				remappedGameCfg.getDependencies().add(project.getDependencies().create("nilgradle.dynamic:remappedGame"));
 			} else {
 				// Don't need to remap
 				remappedGameCfg.getDependencies().addAll(gameCfg.getDependencies());
