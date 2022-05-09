@@ -36,6 +36,8 @@ import org.cadixdev.lorenz.model.TopLevelClassMapping;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.ModuleVersionIdentifier;
+import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.plugins.JavaPlugin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -146,10 +148,12 @@ public class NilPlugin implements Plugin<Project> {
 			if (files.size() > 1) throw new IllegalStateException("Multiple game dependencies present!");
 			File game = files.iterator().next();
 			Map<String, MappingSet> targetMappings = new HashMap<>();
-			for (File tgtFile : targetMappingCfg.resolve()) {
-				MappingSet tgt = detectAndLoad(tgtFile);
-				saveMappings(tgt, "target/raw/"+tgtFile.getName()+".tsrg");
-				targetMappings.put(tgtFile.getName(), tgt);
+			for (ResolvedArtifact a : targetMappingCfg.getResolvedConfiguration().getResolvedArtifacts()) {
+				MappingSet tgt = detectAndLoad(a.getFile());
+				ModuleVersionIdentifier v = a.getModuleVersion().getId();
+				String name = v.getGroup()+"."+v.getName()+"-"+v.getVersion();
+				saveMappings(tgt, "target/raw/"+name+".tsrg");
+				targetMappings.put(name, tgt);
 			}
 			Set<File> workFiles = workMappingCfg.resolve();
 			if (!workFiles.isEmpty()) {
