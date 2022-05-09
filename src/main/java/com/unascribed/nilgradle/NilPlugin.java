@@ -13,8 +13,10 @@ import java.io.PushbackReader;
 import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -143,9 +145,14 @@ public class NilPlugin implements Plugin<Project> {
 			if (files.isEmpty()) throw new IllegalStateException("No game dependency present!");
 			if (files.size() > 1) throw new IllegalStateException("Multiple game dependencies present!");
 			File game = files.iterator().next();
+			Map<String, MappingSet> targetMappings = new HashMap<>();
+			for (File tgtFile : targetMappingCfg.resolve()) {
+				MappingSet tgt = detectAndLoad(tgtFile);
+				saveMappings(tgt, "target/raw/"+tgtFile.getName()+".tsrg");
+				targetMappings.put(tgtFile.getName(), tgt);
+			}
 			Set<File> workFiles = workMappingCfg.resolve();
 			if (!workFiles.isEmpty()) {
-				System.out.println("Loading mappings...");
 				if (workFiles.size() > 1) throw new IllegalStateException("Multiple work mappings present!");
 				File workFile = workFiles.iterator().next();
 				log.info("Detecting and loading work mappings from "+workFile);
@@ -162,13 +169,11 @@ public class NilPlugin implements Plugin<Project> {
 				} else {
 					work = workRaw;
 				}
-				
 				saveMappings(work, "work.tsrg");
-				for (File tgtFile : targetMappingCfg.resolve()) {
-					MappingSet tgt = detectAndLoad(tgtFile);
-					saveMappings(tgt, "target/raw/"+tgtFile.getName()+".tsrg");
-					MappingSet workToTarget = MappingSetMerger.create(work.reverse(), tgt).merge();
-					saveMappings(workToTarget, "target/fromWork/"+tgtFile.getName()+".tsrg");
+				for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
+					MappingSet workToTarget = MappingSetMerger.create(work.reverse(), en.getValue()).merge();
+					saveMappings(workToTarget, "target/fromWork/"+en.getKey()+".tsrg");
+					en.setValue(workToTarget);
 				}
 				File cache = new File(project.getBuildDir(), "nil/cache/remappedGame.jar");
 				if (!cache.exists()) {
