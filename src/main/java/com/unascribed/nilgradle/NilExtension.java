@@ -19,8 +19,26 @@ import com.grack.nanojson.JsonParserException;
 public abstract class NilExtension {
 
 	private Project project;
+	private String id;
+	private boolean standalone;
 	
 	private static final Pattern SAFE_PATTERN = Pattern.compile("^[a-zA-Z0-9._-]+$");
+	
+	public void id(String id) {
+		this.id = id;
+	}
+	
+	public void standalone(boolean standalone) {
+		this.standalone = standalone;
+	}
+	
+	public String getId() {
+		return id;
+	}
+	
+	public boolean isStandalone() {
+		return standalone;
+	}
 	
 	public Dependency minecraft(String version, String side) throws JsonParserException, IOException {
 		return project.getDependencies().create("com.mojang.launcher:"+side+":"+findLauncherDownload(version, side));

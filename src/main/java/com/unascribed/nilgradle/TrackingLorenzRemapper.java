@@ -1,6 +1,7 @@
 package com.unascribed.nilgradle;
 
-import java.util.HashSet;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Optional;
 import java.util.Set;
 
@@ -18,7 +19,7 @@ public class TrackingLorenzRemapper extends Remapper {
 	private final MappingSet mappings;
 	private final InheritanceProvider inheritanceProvider;
 	
-	private final Set<Mapping<?, ?>> usedMappings = new HashSet<>();
+	private final Set<Mapping<?, ?>> usedMappings = Collections.newSetFromMap(new IdentityHashMap<>());
 
 	public TrackingLorenzRemapper(final MappingSet mappings, final InheritanceProvider inheritanceProvider) {
 		this.mappings = mappings;

@@ -20,28 +20,24 @@ repositories {
 	}
 }
 
+configurations {
+	shade
+	compileOnly.extendsFrom shade
+}
+
 dependencies {
-	compileOnly 'com.grack:nanojson:1.6'
-	shadow 'com.grack:nanojson:1.6'
+	shade 'com.grack:nanojson:1.7'
 	
-	compileOnly 'org.ow2.asm:asm:9.2'
-	shadow 'org.ow2.asm:asm:9.2'
-	compileOnly 'org.ow2.asm:asm-tree:9.2'
-	shadow 'org.ow2.asm:asm-tree:9.2'
-	compileOnly 'org.ow2.asm:asm-commons:9.2'
-	shadow 'org.ow2.asm:asm-commons:9.2'
+	shade 'org.ow2.asm:asm:9.2'
+	shade 'org.ow2.asm:asm-tree:9.2'
+	shade 'org.ow2.asm:asm-commons:9.2'
 	
-	compileOnly 'org.cadixdev:lorenz:0.5.6'
-	shadow 'org.cadixdev:lorenz:0.5.6'
-	compileOnly 'org.cadixdev:lorenz-asm:0.5.6'
-	shadow 'org.cadixdev:lorenz-asm:0.5.6'
-	compileOnly 'org.cadixdev:lorenz-io-proguard:0.5.6'
-	shadow 'org.cadixdev:lorenz-io-proguard:0.5.6'
-	compileOnly 'net.fabricmc:lorenz-tiny:3.0.0'
-	shadow 'net.fabricmc:lorenz-tiny:3.0.0'
+	shade 'org.cadixdev:lorenz:0.5.6'
+	shade 'org.cadixdev:lorenz-asm:0.5.6'
+	shade 'org.cadixdev:lorenz-io-proguard:0.5.6'
+	shade 'net.fabricmc:lorenz-tiny:3.0.0'
 	
-	compileOnly 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
-	shadow 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
+	shade 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
 }
 
 gradlePlugin {
@@ -67,7 +63,7 @@ jar {
 
 shadowJar {
 	classifier ''
-	configurations = [project.configurations.shadow]
+	configurations = [project.configurations.shade]
 	
 	relocate 'me.jamiemansfield', 'com.unascribed.nilgradle.repackage.me.jamiemansfield'
 	relocate 'com.grack', 'com.unascribed.nilgradle.repackage.com.grack'

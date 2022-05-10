@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -63,6 +64,7 @@ import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.ResolvedArtifact;
 import org.gradle.api.plugins.JavaPlugin;
+import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.api.tasks.compile.JavaCompile;
 import org.gradle.language.jvm.tasks.ProcessResources;
 import org.objectweb.asm.ClassReader;
@@ -184,8 +186,20 @@ public class NilPlugin implements Plugin<Project> {
 			copy.into("META-INF/nil");
 		});
 		
-		
 		project.afterEvaluate(unused -> {
+			if (nilExt.getId() != null && project.getVersion() != null) {
+				process.getInputs().property("version", project.getVersion());
+				process.filesMatching(nilExt.getId()+".nilmod.css", copy -> {
+					copy.expand(Collections.singletonMap("version", project.getVersion()));
+				});
+			}
+			if (nilExt.isStandalone()) {
+				Jar jar = (Jar)project.getTasks().getByName("jar");
+				for (File f : loaderCfg.resolve()) {
+					jar.from(project.zipTree(f));
+				}
+				jar.getManifest().attributes(Collections.singletonMap("Premain-Class", "nilloader.NilLoader"));
+			}
 			Set<File> files = gameCfg.resolve();
 			if (files.isEmpty()) throw new IllegalStateException("No game dependency present!");
 			if (files.size() > 1) throw new IllegalStateException("Multiple game dependencies present!");
@@ -294,14 +308,13 @@ public class NilPlugin implements Plugin<Project> {
 								TrackingLorenzRemapper re = new TrackingLorenzRemapper(en.getValue(), ip);
 								try {
 									Files.walkFileTree(classDir, new SimpleFileVisitor<Path>() {
-
 										@Override
 										public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
 											if (file.getFileName().toString().endsWith(".class")) {
 												try (InputStream in = Files.newInputStream(file)) {
 													ClassReader reader = new ClassReader(in);
 													ClassWriter cw = new ClassWriter(reader, 0);
-													ClassRemapper remapper = new ClassRemapper(cw, re);
+													ClassRemapper remapper = new MiniAwareClassRemapper(cw, re);
 													reader.accept(remapper, 0);
 													// we don't actually want the class data, but
 													// linking a ClassReader to a ClassWriter causes
@@ -353,6 +366,8 @@ public class NilPlugin implements Plugin<Project> {
 
 	private JsonObject toJson(ClassMapping<?, ?> cm, Predicate<Mapping<?, ?>> filter) {
 		JsonObject obj = new JsonObject();
+		obj.put("from", cm.getFullObfuscatedName());
+		obj.put("to", cm.getFullDeobfuscatedName());
 		JsonArray inner = new JsonArray();
 		for (InnerClassMapping icm : cm.getInnerClassMappings()) {
 			if (filter.test(icm)) {
@@ -381,9 +396,7 @@ public class NilPlugin implements Plugin<Project> {
 			}
 		}
 		if (!fields.isEmpty()) obj.put("fields", fields);
-		if (cm.getFullObfuscatedName().equals(cm.getFullDeobfuscatedName()) && obj.isEmpty()) return null;
-		obj.put("from", cm.getFullObfuscatedName());
-		obj.put("to", cm.getFullDeobfuscatedName());
+//		if (cm.getFullObfuscatedName().equals(cm.getFullDeobfuscatedName()) && obj.size() == 2) return null;
 		return obj;
 	}
 
