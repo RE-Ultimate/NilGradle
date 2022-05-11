@@ -40,6 +40,7 @@ import org.cadixdev.bombe.asm.analysis.ClassProviderInheritanceProvider;
 import org.cadixdev.bombe.jar.ClassProvider;
 import org.cadixdev.bombe.jar.JarFileClassProvider;
 import org.cadixdev.bombe.jar.JarManifestEntry;
+import org.cadixdev.bombe.jar.JarResourceEntry;
 import org.cadixdev.bombe.jar.asm.JarEntryRemappingTransformer;
 import org.cadixdev.bombe.type.signature.FieldSignature;
 import org.cadixdev.bombe.type.signature.MethodSignature;
@@ -84,7 +85,7 @@ import net.fabricmc.mapping.tree.TinyTree;
 
 public class NilPlugin implements Plugin<Project> {
 
-	private static final Logger log = LoggerFactory.getLogger(NilPlugin.class);
+	public static final Logger log = LoggerFactory.getLogger(NilPlugin.class);
 	
 	private Project project;
 	
@@ -147,6 +148,8 @@ public class NilPlugin implements Plugin<Project> {
 		Configuration loaderCfg = project.getConfigurations().create("loader");
 		Configuration gameCfg = project.getConfigurations().create("game");
 		Configuration remappedGameCfg = project.getConfigurations().create("remappedGame");
+		Configuration modCfg = project.getConfigurations().create("mod");
+		Configuration remappedModCfg = project.getConfigurations().create("remappedMod");
 		Configuration targetMappingCfg = project.getConfigurations().create("nilInternalTargetMapping", c -> {
 			c.setVisible(false);
 			c.setCanBeConsumed(false);
@@ -163,12 +166,15 @@ public class NilPlugin implements Plugin<Project> {
 		project.getConfigurations().add(loaderCfg);
 		project.getConfigurations().add(gameCfg);
 		project.getConfigurations().add(remappedGameCfg);
+		project.getConfigurations().add(modCfg);
+		project.getConfigurations().add(remappedModCfg);
 		project.getConfigurations().add(targetMappingCfg);
 		project.getConfigurations().add(viaMappingCfg);
 		project.getConfigurations().add(workMappingCfg);
 		
 		project.getConfigurations().getByName("compileClasspath", compile -> {
 			compile.extendsFrom(remappedGameCfg);
+			compile.extendsFrom(remappedModCfg);
 			compile.extendsFrom(loaderCfg);
 		});
 		
@@ -203,7 +209,6 @@ public class NilPlugin implements Plugin<Project> {
 			Set<File> files = gameCfg.resolve();
 			if (files.isEmpty()) throw new IllegalStateException("No game dependency present!");
 			if (files.size() > 1) throw new IllegalStateException("Multiple game dependencies present!");
-			File game = files.iterator().next();
 			Map<String, MappingSet> targetMappings = new HashMap<>();
 			for (ResolvedArtifact a : targetMappingCfg.getResolvedConfiguration().getResolvedArtifacts()) {
 				MappingSet tgt = detectAndLoad(a.getFile(), !"srg".equals(a.getClassifier()));
@@ -236,44 +241,8 @@ public class NilPlugin implements Plugin<Project> {
 					saveDebugMappings(workToTarget, "target/fromWork/"+en.getKey()+".tsrg");
 					en.setValue(workToTarget);
 				}
-				File cache = new File(project.getBuildDir(), "nil/cache/remappedGame.jar");
-				if (!cache.exists()) {
-					System.out.println("Remapping game...");
-					try (FixedAtlas atlas = new FixedAtlas()) {
-						atlas.getClasspath().add(game.toPath());
-						atlas.install(ctx -> {
-							for (TopLevelClassMapping tlcm : work.getTopLevelClassMappings()) {
-								completeRecursively(tlcm, ctx.inheritanceProvider());
-							}
-							return new JarEntryRemappingTransformer(new LorenzRemapper(work, ctx.inheritanceProvider()) {
-								@Override
-								public String mapMethodName(String owner, String name, String desc) {
-									try {
-										return super.mapMethodName(owner, name, desc);
-									} catch (IllegalStateException e) {
-										log.info("Invalid method mapping for owner="+owner+" name="+name+" desc="+desc+" - dazed and confused, but trying to continue", e);
-										return name;
-									}
-								}
-							}) {
-								@Override
-								public JarManifestEntry transform(final JarManifestEntry entry) {
-									try {
-										return super.transform(entry);
-									} catch (NullPointerException e) {
-										// Main-Class is missing
-										return entry;
-									}
-								}
-							};
-						});
-						cache.getParentFile().mkdirs();
-						atlas.run(game.toPath(), cache.toPath());
-					} catch (IOException e) {
-						throw new UncheckedIOException(e);
-					}
-				}
-				remappedGameCfg.getDependencies().add(project.getDependencies().create("nilgradle.dynamic:remappedGame"));
+				remap(gameCfg, remappedGameCfg, work);
+				remap(modCfg, remappedModCfg, work);
 				targetMappings.put("default", work.reverse());
 			} else {
 				// Don't need to remap
@@ -349,6 +318,66 @@ public class NilPlugin implements Plugin<Project> {
 				});
 			}
 		});
+	}
+
+	private void remap(Configuration in, Configuration out, MappingSet mappings) {
+		for (ResolvedArtifact artifact : in.getResolvedConfiguration().getResolvedArtifacts()) {
+			ModuleVersionIdentifier v = artifact.getModuleVersion().getId();
+			String appendix = "";
+			if (artifact.getClassifier() != null && !artifact.getClassifier().isEmpty()) {
+				appendix = "-"+artifact.getClassifier();
+			}
+			String name = (v.getGroup()+"."+v.getName()+"-"+v.getVersion()+appendix).replace(':', '_');
+			File cache = new File(project.getBuildDir(), "nil/cache/"+name+".jar");
+			if (!cache.exists()) {
+				System.out.println("Remapping "+name+"...");
+				try (FixedAtlas atlas = new FixedAtlas()) {
+					atlas.getClasspath().add(artifact.getFile().toPath());
+					atlas.install(ctx -> {
+						for (TopLevelClassMapping tlcm : mappings.getTopLevelClassMappings()) {
+							completeRecursively(tlcm, ctx.inheritanceProvider());
+						}
+						return new JarEntryRemappingTransformer(new LorenzRemapper(mappings, ctx.inheritanceProvider()) {
+							@Override
+							public String mapMethodName(String owner, String name, String desc) {
+								try {
+									return super.mapMethodName(owner, name, desc);
+								} catch (IllegalStateException e) {
+									log.info("Invalid method mapping for owner="+owner+" name="+name+" desc="+desc+" - dazed and confused, but trying to continue", e);
+									return name;
+								}
+							}
+
+						}) {
+							@Override
+							public JarManifestEntry transform(final JarManifestEntry entry) {
+								try {
+									return super.transform(entry);
+								} catch (NullPointerException e) {
+									// Main-Class is missing
+									return entry;
+								}
+							}
+							
+							@Override
+							public JarResourceEntry transform(final JarResourceEntry entry) {
+								if (entry.getName().startsWith("META-INF/")
+										&& (entry.getExtension().equalsIgnoreCase("dsa") || entry.getExtension().equalsIgnoreCase("sf"))) {
+									return null;
+								}
+								return entry;
+							}
+							
+						};
+					});
+					cache.getParentFile().mkdirs();
+					atlas.run(artifact.getFile().toPath(), cache.toPath());
+				} catch (IOException e) {
+					throw new UncheckedIOException(e);
+				}
+			}
+			out.getDependencies().add(project.getDependencies().create("nilgradle.dynamic:"+name));
+		}
 	}
 
 	private JsonObject toJson(MappingSet mappings, Predicate<Mapping<?, ?>> filter) {

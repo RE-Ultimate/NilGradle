@@ -49,6 +49,10 @@ public class MiniAwareClassRemapper extends ClassRemapper {
 							public void visit(String name, Object value) {
 								if (name.equals("value")) {
 									MethodSignature sig = MethodSignature.of(value.toString());
+									if (classTarget == null) {
+										NilPlugin.log.info("Found MiniTransformer with no Class annotation; patchers in a transformer like this cannot be remapped! You can ignore this if you are patching unobfuscated code.");
+										return;
+									}
 									value = remapper.mapMethodName(classTarget, sig.getName(), sig.getDescriptor().toString())+remapper.mapMethodDesc(sig.getDescriptor().toString());
 								}
 								super.visit(name, value);

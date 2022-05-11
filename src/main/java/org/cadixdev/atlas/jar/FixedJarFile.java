@@ -175,7 +175,13 @@ public class FixedJarFile implements ClassProvider, Closeable {
                     // Transform the entry
                     for (final JarEntryTransformer transformer : transformers) {
                         entry = entry.accept(transformer);
+                        // NIL BEGIN: allow deleting entries
+                        if (entry == null) break;
                     }
+                    if (entry == null) {
+                        return null;
+                    }
+                    // NIL END
 
                     // Write to jar
                     final Path outEntry = fs.getPath("/", entry.getName());
