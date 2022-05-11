@@ -3,6 +3,7 @@ package com.unascribed.nilgradle;
 import org.cadixdev.bombe.type.MethodDescriptor;
 import org.cadixdev.bombe.type.signature.FieldSignature;
 import org.cadixdev.bombe.type.signature.MethodSignature;
+import org.cadixdev.lorenz.MappingSet;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Handle;
@@ -15,11 +16,13 @@ import org.objectweb.asm.commons.MethodRemapper;
 import org.objectweb.asm.commons.Remapper;
 
 public class MiniAwareClassRemapper extends ClassRemapper {
+	private final MappingSet mappings;
 	private String classTarget;
 	private String className;
 
-	public MiniAwareClassRemapper(ClassVisitor classVisitor, Remapper remapper) {
+	public MiniAwareClassRemapper(MappingSet mappings, ClassVisitor classVisitor, Remapper remapper) {
 		super(classVisitor, remapper);
+		this.mappings = mappings;
 	}
 
 	@Override
@@ -89,12 +92,15 @@ public class MiniAwareClassRemapper extends ClassRemapper {
 			public void visitLdcInsn(Object value) {
 				if (value instanceof String) {
 					if (stage == 0) {
-						String newType = remapper.mapType(value.toString());
-						if (!value.equals(newType)) {
-							stage = 1;
-							owner = value.toString();
-							remappedOwner = newType;
-							return;
+						try {
+							if (mappings.computeClassMapping(value.toString()).isPresent()) {
+								stage = 1;
+								owner = value.toString();
+								remappedOwner = remapper.mapType(value.toString());
+								return;
+							}
+						} catch (IllegalArgumentException | IndexOutOfBoundsException e) {
+							// ignore
 						}
 					} else if (stage == 1) {
 						subject = value.toString();
@@ -108,12 +114,12 @@ public class MiniAwareClassRemapper extends ClassRemapper {
 							MethodDescriptor.of(desc);
 							remappedSubject = remapper.mapMethodName(owner, subject, desc);
 							remappedDesc = remapper.mapMethodDesc(desc);
-						} catch (IllegalArgumentException | IllegalStateException e) {
+						} catch (IllegalArgumentException | IllegalStateException | IndexOutOfBoundsException e) {
 							try {
 								FieldSignature.of(subject, desc);
 								remappedSubject = remapper.mapFieldName(owner, subject, desc);
 								remappedDesc = remapper.mapDesc(desc);
-							} catch (IllegalArgumentException | IllegalStateException e2) {
+							} catch (IllegalArgumentException | IllegalStateException | IndexOutOfBoundsException e2) {
 							}
 						}
 						super.visitLdcInsn(remappedOwner);

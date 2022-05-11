@@ -283,7 +283,7 @@ public class NilPlugin implements Plugin<Project> {
 												try (InputStream in = Files.newInputStream(file)) {
 													ClassReader reader = new ClassReader(in);
 													ClassWriter cw = new ClassWriter(reader, 0);
-													ClassRemapper remapper = new MiniAwareClassRemapper(cw, re);
+													ClassRemapper remapper = new MiniAwareClassRemapper(en.getValue(), cw, re);
 													reader.accept(remapper, 0);
 													// we don't actually want the class data, but
 													// linking a ClassReader to a ClassWriter causes
