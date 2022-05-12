@@ -504,6 +504,13 @@ public class NilPlugin implements Plugin<Project> {
 						} else {
 							return detectAndLoad(zip);
 						}
+					} else if ("conf/joined.srg".equals(ze.getName())) {
+						log.info("Discovered legacy MCP joined.srg");
+						if (resolveTriplicate) {
+							mcpSrg = getTextWithoutClosing(zip);
+						} else {
+							return detectAndLoad(zip);
+						}
 					} else if ("conf/minecraft.rgs".equals(ze.getName())) {
 						log.info("Discovered legacy MCP minecraft.rgs");
 						return detectAndLoad(zip);
