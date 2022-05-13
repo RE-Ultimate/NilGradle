@@ -1,6 +1,8 @@
 package com.unascribed.nilgradle;
 
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.artifacts.ModuleDependency;
 
 public abstract class MappingsExtension {
 
@@ -10,19 +12,25 @@ public abstract class MappingsExtension {
 	private boolean setWorkAlready = false;
 	
 	public void target(Object dep) {
-		project.getDependencies().add("nilInternalTargetMapping", dep);
+		noTransitive(project.getDependencies().add("nilInternalTargetMapping", dep));
 	}
 	
 	public void via(Object dep) {
-		if (setWorkAlready) throw new IllegalStateException("Cannot specify multiple via mappings");
+		if (setViaAlready) throw new IllegalStateException("Cannot specify multiple via mappings");
 		setViaAlready = true;
-		project.getDependencies().add("nilInternalViaMapping", dep);
+		noTransitive(project.getDependencies().add("nilInternalViaMapping", dep));
 	}
 	
 	public void work(Object dep) {
 		if (setWorkAlready) throw new IllegalStateException("Cannot specify multiple work mappings");
 		setWorkAlready = true;
-		project.getDependencies().add("nilInternalWorkMapping", dep);
+		noTransitive(project.getDependencies().add("nilInternalWorkMapping", dep));
+	}
+
+	private void noTransitive(Dependency d) {
+		if (d instanceof ModuleDependency) {
+			((ModuleDependency)d).setTransitive(false);
+		}
 	}
 
 	public void setProject(Project project) {
