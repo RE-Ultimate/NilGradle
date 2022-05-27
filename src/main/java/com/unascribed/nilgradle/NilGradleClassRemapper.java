@@ -2,6 +2,8 @@ package com.unascribed.nilgradle;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 
 import org.cadixdev.bombe.asm.jar.ClassProvider;
@@ -13,6 +15,7 @@ import org.cadixdev.bombe.type.Type;
 import org.cadixdev.bombe.type.signature.FieldSignature;
 import org.cadixdev.bombe.type.signature.MethodSignature;
 import org.cadixdev.lorenz.MappingSet;
+import org.cadixdev.lorenz.model.MethodMapping;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -78,6 +81,54 @@ public class NilGradleClassRemapper extends ClassRemapper {
 				};
 			default:
 				return super.createAnnotationRemapper(descriptor, annotationVisitor);
+		}
+	}
+	
+	@Override
+	public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+		Map<MethodSignature, String> superSigs = new HashMap<>();
+		String check = className;
+		while (!"java/lang/Object".equals(check)) {
+			ClassNode node = classCache.computeIfAbsent(check, provider::getAsNode);
+			if (node == null) break;
+			scanInterfaces(name, descriptor, superSigs, node);
+			findMethod(name, descriptor, superSigs, node);
+			check = node.superName;
+		}
+		if (superSigs.size() > 1) {
+			System.err.println("UNRESOLVABLE CONFLICT: "+className+"."+name+descriptor+" has multiple possible obfuscated signatures:");
+			for (Entry<MethodSignature, String> en : superSigs.entrySet()) {
+				System.err.println(" - "+en.getKey().toJvmsIdentifier()+" defined in "+en.getValue());
+			}
+			System.err.println("The method will not be remapped.");
+		} else if (superSigs.size() == 1) {
+			MethodMapping mm = mappings.getOrCreateClassMapping(className).getOrCreateMethodMapping(name, descriptor);
+			MethodSignature sig = superSigs.keySet().iterator().next();
+			mm.setDeobfuscatedName(sig.getName());
+			// track the mapping
+			remapper.mapMethodName(className, name, descriptor);
+		}
+		return super.visitMethod(access, name, descriptor, signature, exceptions);
+	}
+
+	private void scanInterfaces(String name, String descriptor, Map<MethodSignature, String> superSigs, ClassNode node) {
+		for (String iface : node.interfaces) {
+			ClassNode ifaceNode = classCache.computeIfAbsent(iface, provider::getAsNode);
+			if (ifaceNode != null) {
+				findMethod(name, descriptor, superSigs, ifaceNode);
+				scanInterfaces(name, descriptor, superSigs, ifaceNode);
+			}
+		}
+	}
+
+	private void findMethod(String name, String descriptor, Map<MethodSignature, String> superSigs, ClassNode node) {
+		for (MethodNode mn : node.methods) {
+			if (mn.name.equals(name) && mn.desc.equals(descriptor)) {
+				MethodMapping mapping = mappings.computeClassMapping(node.name).map(cm -> cm.getMethodMapping(name, descriptor)).orElse(Optional.empty()).orElse(null);
+				if (mapping != null) {
+					superSigs.put(mapping.getDeobfuscatedSignature(), node.name);
+				}
+			}
 		}
 	}
 

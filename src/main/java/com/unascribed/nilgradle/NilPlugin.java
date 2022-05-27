@@ -512,8 +512,8 @@ public class NilPlugin implements Plugin<Project> {
 
 	private JsonObject toJson(ClassMapping<?, ?> cm, Predicate<Mapping<?, ?>> filter) {
 		JsonObject obj = new JsonObject();
-		obj.put("from", cm.getFullObfuscatedName());
-		obj.put("to", cm.getFullDeobfuscatedName());
+		obj.put("from", cm.getObfuscatedName());
+		obj.put("to", cm.getDeobfuscatedName());
 		JsonArray inner = new JsonArray();
 		for (InnerClassMapping icm : cm.getInnerClassMappings()) {
 			if (filter.test(icm)) {
