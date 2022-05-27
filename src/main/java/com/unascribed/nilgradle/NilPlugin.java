@@ -78,6 +78,7 @@ import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.commons.ClassRemapper;
@@ -365,6 +366,22 @@ public class NilPlugin implements Plugin<Project> {
 								}
 							}
 							
+							
+						}, (cv, re) -> new ClassRemapper(cv, re) {
+							@Override
+							public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+								MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
+								return new MethodVisitor(Opcodes.ASM9, mv) {
+									@Override
+									public void visitLocalVariable(String varName, String varDescriptor, String varSignature, Label start, Label end, int index) {
+										varName = mappings.computeClassMapping(className)
+											.map(cm -> cm.getMethodMapping(name, descriptor)).orElse(Optional.empty())
+											.map(mm -> mm.getParameterMapping(index)).orElse(Optional.empty())
+											.map(pm -> pm.getDeobfuscatedName()).orElse(varName);
+										super.visitLocalVariable(varName, varDescriptor, varSignature, start, end, index);
+									}
+								};
+							}
 						}) {
 							@Override
 							public JarManifestEntry transform(final JarManifestEntry entry) {
@@ -397,6 +414,7 @@ public class NilPlugin implements Plugin<Project> {
 								ClassReader cr = new ClassReader(entry.getContents());
 								ClassWriter cw = new ClassWriter(0);
 								cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
+									private String className;
 									
 									private int makePublic(int access) {
 										if ((access & Opcodes.ACC_PUBLIC) == 0) {
@@ -421,6 +439,7 @@ public class NilPlugin implements Plugin<Project> {
 									
 									@Override
 									public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+										className = name;
 										super.visit(version, makePublic(access), name, signature, superName, interfaces);
 										annotate(access, super::visitAnnotation);
 									}
@@ -659,7 +678,7 @@ public class NilPlugin implements Plugin<Project> {
 				log.info("Discovered tinyv2");
 				TinyTree tree = TinyMappingFactory.load(new BufferedReader(new InputStreamReader(in)));
 				return load(tree);
-			}else if (startsWith(in, TSRG2_HEADER)) {
+			} else if (startsWith(in, TSRG2_HEADER)) {
 				log.info("Discovered tsrg2");
 				return new TSrg2Reader(new BufferedReader(new InputStreamReader(in))).read();
 			} else if (startsWith(in, SRG_HEADER)) {
