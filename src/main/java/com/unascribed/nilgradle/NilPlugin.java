@@ -73,6 +73,7 @@ import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.api.tasks.compile.JavaCompile;
 import org.gradle.language.jvm.tasks.ProcessResources;
+import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -473,6 +474,11 @@ public class NilPlugin implements Plugin<Project> {
 						};
 					});
 					atlas.run(artifact.getFile().toPath(), widenedCache.toPath());
+					if (project.hasProperty("nil.decompile")) {
+						System.out.println("Decompiling...");
+						File sources = new File(widenedCache.getParentFile(), widenedCache.getName().replaceFirst(".jar$", "-sources.jar"));
+						ConsoleDecompiler.main(new String[] {"-log=ERROR", "-udv=1", "-thr=4", "-ind=\t", widenedCache.getAbsolutePath(), sources.getAbsolutePath()});
+					}
 				} catch (IOException e) {
 					throw new UncheckedIOException(e);
 				}

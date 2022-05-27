@@ -16,6 +16,9 @@ repositories {
 		url 'https://maven.fabricmc.net/'
 	}
 	maven {
+		url 'https://maven.quiltmc.org/repository/release'
+	}
+	maven {
 		url 'https://oss.sonatype.org/content/repositories/snapshots/'
 	}
 }
@@ -38,6 +41,8 @@ dependencies {
 	shade 'net.fabricmc:lorenz-tiny:3.0.0'
 	
 	shade 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
+	
+	shade 'org.quiltmc:quiltflower:1.8.1'
 }
 
 gradlePlugin {
@@ -82,6 +87,8 @@ shadowJar {
 	relocate 'net.fabricmc', 'com.unascribed.nilgradle.repackage.net.fabricmc'
 	relocate 'org.cadixdev', 'com.unascribed.nilgradle.repackage.org.cadixdev'
 	relocate 'org.objectweb', 'com.unascribed.nilgradle.repackage.org.objectweb'
+	relocate 'org.quiltmc', 'com.unascribed.nilgradle.repackage.org.quiltmc'
+	relocate 'org.jetbrains', 'com.unascribed.nilgradle.repackage.org.jetbrains'
 }
 
 tasks.build.dependsOn tasks.shadowJar
