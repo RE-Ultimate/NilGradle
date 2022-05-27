@@ -15,6 +15,7 @@ import org.cadixdev.bombe.type.Type;
 import org.cadixdev.bombe.type.signature.FieldSignature;
 import org.cadixdev.bombe.type.signature.MethodSignature;
 import org.cadixdev.lorenz.MappingSet;
+import org.cadixdev.lorenz.model.FieldMapping;
 import org.cadixdev.lorenz.model.MethodMapping;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
@@ -86,8 +87,13 @@ public class NilGradleClassRemapper extends ClassRemapper {
 	
 	@Override
 	public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+		scanAndMemoizeRemapMethod(className, name, descriptor);
+		return super.visitMethod(access, name, descriptor, signature, exceptions);
+	}
+
+	private void scanAndMemoizeRemapMethod(String owner, String name, String descriptor) {
 		Map<MethodSignature, String> superSigs = new HashMap<>();
-		String check = className;
+		String check = owner;
 		while (!"java/lang/Object".equals(check)) {
 			ClassNode node = classCache.computeIfAbsent(check, provider::getAsNode);
 			if (node == null) break;
@@ -96,19 +102,42 @@ public class NilGradleClassRemapper extends ClassRemapper {
 			check = node.superName;
 		}
 		if (superSigs.size() > 1) {
-			System.err.println("UNRESOLVABLE CONFLICT: "+className+"."+name+descriptor+" has multiple possible obfuscated signatures:");
+			System.err.println("UNRESOLVABLE CONFLICT: "+owner+"."+name+descriptor+" has multiple possible obfuscated signatures:");
 			for (Entry<MethodSignature, String> en : superSigs.entrySet()) {
 				System.err.println(" - "+en.getKey().toJvmsIdentifier()+" defined in "+en.getValue());
 			}
 			System.err.println("The method will not be remapped.");
 		} else if (superSigs.size() == 1) {
-			MethodMapping mm = mappings.getOrCreateClassMapping(className).getOrCreateMethodMapping(name, descriptor);
+			MethodMapping mm = mappings.getOrCreateClassMapping(owner).getOrCreateMethodMapping(name, descriptor);
 			MethodSignature sig = superSigs.keySet().iterator().next();
 			mm.setDeobfuscatedName(sig.getName());
 			// track the mapping
-			remapper.mapMethodName(className, name, descriptor);
+			remapper.mapMethodName(owner, name, descriptor);
 		}
-		return super.visitMethod(access, name, descriptor, signature, exceptions);
+	}
+
+	private void scanAndMemoizeRemapField(String owner, String name, String descriptor) {
+		Map<FieldSignature, String> superSigs = new HashMap<>();
+		String check = owner;
+		while (!"java/lang/Object".equals(check)) {
+			ClassNode node = classCache.computeIfAbsent(check, provider::getAsNode);
+			if (node == null) break;
+			findField(name, descriptor, superSigs, node);
+			check = node.superName;
+		}
+		if (superSigs.size() > 1) {
+			System.err.println("UNRESOLVABLE CONFLICT: "+owner+"#"+name+":"+descriptor+" has multiple possible obfuscated signatures:");
+			for (Entry<FieldSignature, String> en : superSigs.entrySet()) {
+				System.err.println(" - "+en.getKey().toJvmsIdentifier()+" defined in "+en.getValue());
+			}
+			System.err.println("The field will not be remapped.");
+		} else if (superSigs.size() == 1) {
+			FieldMapping mm = mappings.getOrCreateClassMapping(owner).getOrCreateFieldMapping(name, descriptor);
+			FieldSignature sig = superSigs.keySet().iterator().next();
+			mm.setDeobfuscatedName(sig.getName());
+			// track the mapping
+			remapper.mapFieldName(owner, name, descriptor);
+		}
 	}
 
 	private void scanInterfaces(String name, String descriptor, Map<MethodSignature, String> superSigs, ClassNode node) {
@@ -125,6 +154,18 @@ public class NilGradleClassRemapper extends ClassRemapper {
 		for (MethodNode mn : node.methods) {
 			if (mn.name.equals(name) && mn.desc.equals(descriptor)) {
 				MethodMapping mapping = mappings.computeClassMapping(node.name).map(cm -> cm.getMethodMapping(name, descriptor)).orElse(Optional.empty()).orElse(null);
+				if (mapping != null) {
+					superSigs.put(mapping.getDeobfuscatedSignature(), node.name);
+				}
+			}
+		}
+	}
+
+	private void findField(String name, String descriptor, Map<FieldSignature, String> superSigs, ClassNode node) {
+		FieldSignature sig = FieldSignature.of(name, descriptor);
+		for (FieldNode fn : node.fields) {
+			if (fn.name.equals(name) && fn.desc.equals(descriptor)) {
+				FieldMapping mapping = mappings.computeClassMapping(node.name).map(cm -> cm.computeFieldMapping(sig)).orElse(Optional.empty()).orElse(null);
 				if (mapping != null) {
 					superSigs.put(mapping.getDeobfuscatedSignature(), node.name);
 				}
@@ -411,6 +452,7 @@ public class NilGradleClassRemapper extends ClassRemapper {
 			public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
 				resetLdcStage();
 				checkWideningField(owner, name, descriptor);
+				scanAndMemoizeRemapField(owner, name, descriptor);
 				super.visitFieldInsn(opcode, owner, name, descriptor);
 			}
 
@@ -418,6 +460,7 @@ public class NilGradleClassRemapper extends ClassRemapper {
 			public void visitMethodInsn(int opcodeAndSource, String owner, String name, String descriptor, boolean isInterface) {
 				resetLdcStageOrEmitRemappedOwner(owner, name);
 				checkWideningMethod(owner, name, descriptor);
+				scanAndMemoizeRemapMethod(owner, name, descriptor);
 				super.visitMethodInsn(opcodeAndSource, owner, name, descriptor, isInterface);
 			}
 
@@ -425,6 +468,7 @@ public class NilGradleClassRemapper extends ClassRemapper {
 			public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
 				resetLdcStage();
 				checkWideningMethod(owner, name, descriptor);
+				scanAndMemoizeRemapMethod(owner, name, descriptor);
 				super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
 			}
 
