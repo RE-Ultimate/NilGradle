@@ -23,11 +23,14 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import java.util.jar.JarFile;
 import java.util.zip.ZipEntry;
@@ -38,6 +41,8 @@ import org.cadixdev.atlas.FixedCompositeClassProvider;
 import org.cadixdev.bombe.analysis.InheritanceProvider;
 import org.cadixdev.bombe.asm.analysis.ClassProviderInheritanceProvider;
 import org.cadixdev.bombe.jar.ClassProvider;
+import org.cadixdev.bombe.jar.JarClassEntry;
+import org.cadixdev.bombe.jar.JarEntryTransformer;
 import org.cadixdev.bombe.jar.JarFileClassProvider;
 import org.cadixdev.bombe.jar.JarManifestEntry;
 import org.cadixdev.bombe.jar.JarResourceEntry;
@@ -68,8 +73,12 @@ import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.api.tasks.compile.JavaCompile;
 import org.gradle.language.jvm.tasks.ProcessResources;
+import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
+import org.objectweb.asm.FieldVisitor;
+import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.commons.ClassRemapper;
 import org.slf4j.Logger;
@@ -261,7 +270,12 @@ public class NilPlugin implements Plugin<Project> {
 							List<ClassProvider> providers = new ArrayList<>();
 							for (File f : project.getConfigurations().getByName("compileClasspath").resolve()) {
 								try {
-									providers.add(new JarFileClassProvider(new JarFile(f)));
+									File unwidened = new File(f.getParentFile(), f.getName().replaceFirst(".jar$", "-unwidened.jar"));
+									if (unwidened.exists()) {
+										providers.add(new JarFileClassProvider(new JarFile(unwidened)));
+									} else {
+										providers.add(new JarFileClassProvider(new JarFile(f)));
+									}
 								} catch (IOException e) {
 									log.warn("Error reading "+f, e);
 								}
@@ -269,7 +283,9 @@ public class NilPlugin implements Plugin<Project> {
 							providers.add(new DirectoryClassProvider(classDir));
 							FixedCompositeClassProvider provider = new FixedCompositeClassProvider(providers);
 							InheritanceProvider ip = new ClassProviderInheritanceProvider(Opcodes.ASM9, provider);
-							JsonObject out = new JsonObject();
+							JsonObject mappingsOut = new JsonObject();
+							Set<String> classesToWiden = new HashSet<>();
+							Set<Member> membersToWiden = new HashSet<>();
 							for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
 								for (TopLevelClassMapping tlcm : en.getValue().getTopLevelClassMappings()) {
 									completeRecursively(tlcm, ip);
@@ -283,7 +299,7 @@ public class NilPlugin implements Plugin<Project> {
 												try (InputStream in = Files.newInputStream(file)) {
 													ClassReader reader = new ClassReader(in);
 													ClassWriter cw = new ClassWriter(reader, 0);
-													ClassRemapper remapper = new MiniAwareClassRemapper(en.getValue(), cw, re);
+													ClassRemapper remapper = new NilGradleClassRemapper(en.getValue(), cw, re, provider, classesToWiden, membersToWiden);
 													reader.accept(remapper, 0);
 													// we don't actually want the class data, but
 													// linking a ClassReader to a ClassWriter causes
@@ -299,10 +315,10 @@ public class NilPlugin implements Plugin<Project> {
 								} catch (IOException e) {
 									log.warn("Error while detecting used mappings for target "+en.getKey(), e);
 								}
-								out.put(en.getKey(), toJson(en.getValue(), re.getUsedMappings()::contains));
+								mappingsOut.put(en.getKey(), toJson(en.getValue(), re.getUsedMappings()::contains, classesToWiden, membersToWiden));
 							}
 							try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
-								JsonWriter.indent("\t").on(os).object(out).done();
+								JsonWriter.indent("\t").on(os).object(mappingsOut).done();
 							} catch (IOException e) {
 								log.warn("Error while writing mappings", e);
 							}
@@ -328,8 +344,9 @@ public class NilPlugin implements Plugin<Project> {
 				appendix = "-"+artifact.getClassifier();
 			}
 			String name = (v.getGroup()+"."+v.getName()+"-"+v.getVersion()+appendix).replace(':', '_');
-			File cache = new File(project.getBuildDir(), "nil/cache/"+name+".jar");
-			if (!cache.exists()) {
+			File cache = new File(project.getBuildDir(), "nil/cache/"+name+"-unwidened.jar");
+			File widenedCache = new File(project.getBuildDir(), "nil/cache/"+name+".jar");
+			if (!cache.exists() || !widenedCache.exists()) {
 				System.out.println("Remapping "+name+"...");
 				try (FixedAtlas atlas = new FixedAtlas()) {
 					atlas.getClasspath().add(artifact.getFile().toPath());
@@ -347,7 +364,7 @@ public class NilPlugin implements Plugin<Project> {
 									return name;
 								}
 							}
-
+							
 						}) {
 							@Override
 							public JarManifestEntry transform(final JarManifestEntry entry) {
@@ -372,6 +389,71 @@ public class NilPlugin implements Plugin<Project> {
 					});
 					cache.getParentFile().mkdirs();
 					atlas.run(artifact.getFile().toPath(), cache.toPath());
+					atlas.install(ctx -> {
+						return new JarEntryTransformer() {
+							
+							@Override
+							public JarClassEntry transform(JarClassEntry entry) {
+								ClassReader cr = new ClassReader(entry.getContents());
+								ClassWriter cw = new ClassWriter(0);
+								cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
+									
+									private int makePublic(int access) {
+										if ((access & Opcodes.ACC_PUBLIC) == 0) {
+											access = (access & ~(Opcodes.ACC_PRIVATE|Opcodes.ACC_PROTECTED)) | Opcodes.ACC_PUBLIC;
+										}
+										return access;
+									}
+									
+									private void annotate(int access, BiFunction<String, Boolean, AnnotationVisitor> visit) {
+										if ((access & Opcodes.ACC_PUBLIC) == 0) {
+											String ann = null;
+											if ((access & Opcodes.ACC_PRIVATE) != 0) {
+												ann = "Private";
+											} else if ((access & Opcodes.ACC_PROTECTED) != 0) {
+												ann = "Protected";
+											} else {
+												ann = "PackagePrivate";
+											}
+											visit.apply("Lnilloader/annotate/Originally"+ann+";", false).visitEnd();
+										}
+									}
+									
+									@Override
+									public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+										super.visit(version, makePublic(access), name, signature, superName, interfaces);
+										annotate(access, super::visitAnnotation);
+									}
+									
+									@Override
+									public FieldVisitor visitField(int access, String name, String descriptor, String signature, Object value) {
+										FieldVisitor fv = super.visitField(makePublic(access), name, descriptor, signature, value);
+										annotate(access, fv::visitAnnotation);
+										return fv;
+									}
+									
+									@Override
+									public MethodVisitor visitMethod(int access, String name, String descriptor, String signature, String[] exceptions) {
+										if ("<clinit>".equals(name)) {
+											return super.visitMethod(access, name, descriptor, signature, exceptions);
+										}
+										MethodVisitor mv = super.visitMethod(makePublic(access), name, descriptor, signature, exceptions);
+										annotate(access, mv::visitAnnotation);
+										return mv;
+									}
+									
+									@Override
+									public void visitInnerClass(String name, String outerName, String innerName, int access) {
+										super.visitInnerClass(name, outerName, innerName, makePublic(access));
+									}
+									
+								}, 0);
+								return new JarClassEntry(entry.getName(), entry.getTime(), cw.toByteArray());
+							}
+							
+						};
+					});
+					atlas.run(artifact.getFile().toPath(), widenedCache.toPath());
 				} catch (IOException e) {
 					throw new UncheckedIOException(e);
 				}
@@ -380,7 +462,7 @@ public class NilPlugin implements Plugin<Project> {
 		}
 	}
 
-	private JsonObject toJson(MappingSet mappings, Predicate<Mapping<?, ?>> filter) {
+	private JsonObject toJson(MappingSet mappings, Predicate<Mapping<?, ?>> filter, Set<String> classesToWiden, Set<Member> membersToWiden) {
 		JsonObject obj = new JsonObject();
 		JsonArray classes = new JsonArray();
 		for (TopLevelClassMapping tlcm : mappings.getTopLevelClassMappings()) {
@@ -390,6 +472,41 @@ public class NilPlugin implements Plugin<Project> {
 			}
 		}
 		obj.put("classes", classes);
+		JsonObject widen = new JsonObject();
+		if (!classesToWiden.isEmpty()) {
+			JsonArray widenClasses = new JsonArray();
+			for (String s : classesToWiden) {
+				widenClasses.add(mappings.computeClassMapping(s).map(ClassMapping::getFullDeobfuscatedName).orElse(s));
+			}
+			widen.put("classes", widenClasses);
+		}
+		if (!membersToWiden.isEmpty()) {
+			JsonArray widenMethods = new JsonArray();
+			JsonArray widenFields = new JsonArray();
+			for (Member m : membersToWiden) {
+				JsonObject entry = new JsonObject();
+				Optional<? extends ClassMapping<?, ?>> cm = mappings.computeClassMapping(m.owner);
+				entry.put("owner", cm.map(ClassMapping::getFullDeobfuscatedName).orElse(m.owner));
+				if (m.signature instanceof MethodSignature) {
+					entry.put("sig", toString(cm.map(cmm -> cmm.getMethodMapping((MethodSignature)m.signature))
+							.orElse(Optional.empty()).map(MethodMapping::getDeobfuscatedSignature).orElse((MethodSignature) m.signature)));
+					widenMethods.add(entry);
+				} else if (m.signature instanceof FieldSignature) {
+					entry.put("sig", toString(cm.map(cmm -> cmm.computeFieldMapping((FieldSignature)m.signature))
+							.orElse(Optional.empty()).map(FieldMapping::getDeobfuscatedSignature).orElse((FieldSignature) m.signature)));
+					widenFields.add(entry);
+				}
+			}
+			if (!widenMethods.isEmpty()) {
+				widen.put("methods", widenMethods);
+			}
+			if (!widenFields.isEmpty()) {
+				widen.put("fields", widenFields);
+			}
+		}
+		if (!widen.isEmpty()) {
+			obj.put("widen", widen);
+		}
 		return obj;
 	}
 
@@ -428,7 +545,7 @@ public class NilPlugin implements Plugin<Project> {
 //		if (cm.getFullObfuscatedName().equals(cm.getFullDeobfuscatedName()) && obj.size() == 2) return null;
 		return obj;
 	}
-
+	
 	private String toString(FieldSignature signature) {
 		return signature.getName()+signature.getType().map(t -> ":"+t).orElse("");
 	}

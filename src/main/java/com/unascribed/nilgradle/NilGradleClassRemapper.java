@@ -1,10 +1,20 @@
 package com.unascribed.nilgradle;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+import org.cadixdev.bombe.asm.jar.ClassProvider;
+import org.cadixdev.bombe.type.ArrayType;
+import org.cadixdev.bombe.type.FieldType;
 import org.cadixdev.bombe.type.MethodDescriptor;
+import org.cadixdev.bombe.type.ObjectType;
+import org.cadixdev.bombe.type.Type;
 import org.cadixdev.bombe.type.signature.FieldSignature;
 import org.cadixdev.bombe.type.signature.MethodSignature;
 import org.cadixdev.lorenz.MappingSet;
 import org.objectweb.asm.AnnotationVisitor;
+import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.Handle;
 import org.objectweb.asm.Label;
@@ -14,20 +24,41 @@ import org.objectweb.asm.commons.AnnotationRemapper;
 import org.objectweb.asm.commons.ClassRemapper;
 import org.objectweb.asm.commons.MethodRemapper;
 import org.objectweb.asm.commons.Remapper;
+import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldNode;
+import org.objectweb.asm.tree.MethodNode;
 
-public class MiniAwareClassRemapper extends ClassRemapper {
+public class NilGradleClassRemapper extends ClassRemapper {
+	private static final boolean DEBUG = false;
+	
 	private final MappingSet mappings;
 	private String classTarget;
 	private String className;
+	private String classPackage;
+	private String classSuper;
+	private final ClassProvider provider;
+	private final Set<String> classesToWiden;
+	private final Set<Member> membersToWiden;
+	private final Map<String, ClassNode> classCache = new HashMap<>();
 
-	public MiniAwareClassRemapper(MappingSet mappings, ClassVisitor classVisitor, Remapper remapper) {
+	public NilGradleClassRemapper(MappingSet mappings, ClassVisitor classVisitor, Remapper remapper, ClassProvider provider, Set<String> classesToWiden, Set<Member> membersToWiden) {
 		super(classVisitor, remapper);
 		this.mappings = mappings;
+		this.provider = provider;
+		this.classesToWiden = classesToWiden;
+		this.membersToWiden = membersToWiden;
 	}
-
+	
 	@Override
 	public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
 		className = name;
+		int slash = name.lastIndexOf('/');
+		if (slash == -1) {
+			classPackage = "";
+		} else {
+			classPackage = name.substring(0, slash);
+		}
+		classSuper = superName;
 		super.visit(version, access, name, signature, superName, interfaces);
 	}
 	
@@ -186,27 +217,170 @@ public class MiniAwareClassRemapper extends ClassRemapper {
 				resetLdcStage();
 			}
 
+			private boolean canAccess(String owner, boolean member, int access) {
+				if ((access & Opcodes.ACC_PUBLIC) != 0) {
+					if (DEBUG) System.out.println("    public");
+					return true;
+				}
+				if ((access & Opcodes.ACC_PRIVATE) != 0) {
+					if (DEBUG) System.out.println("    private");
+					return owner.equals(className);
+				}
+				int slash = owner.lastIndexOf('/');
+				String pkg;
+				if (slash != -1) {
+					pkg = owner.substring(0, slash);
+				} else {
+					pkg = "";
+				}
+				if ((access & Opcodes.ACC_PROTECTED) != 0) {
+					if (DEBUG) System.out.println("    protected");
+					if (!member) {
+						if (pkg.equals(classPackage)) {
+							return true;
+						}
+					} else {
+						if (owner.equals(classSuper)) {
+							return true;
+						}
+						String check = classSuper;
+						while (!"java/lang/Object".equals(check)) {
+							if (owner.equals(check)) {
+								return true;
+							}
+							ClassNode cn = classCache.computeIfAbsent(check, provider::getAsNode);
+							if (cn == null) break;
+							check = cn.superName;
+						}
+					}
+					return owner.equals(className);
+				}
+				if (DEBUG) System.out.println("    package");
+				if (pkg.equals(classPackage)) {
+					return true;
+				}
+				return owner.equals(className);
+			}
+			
+			private ClassNode checkWidening(String owner) {
+				ClassNode cn = classCache.computeIfAbsent(owner, (name) -> provider.getAsNode(name, ClassReader.SKIP_CODE));
+				if (DEBUG) System.out.println(owner);
+				if (cn == null) {
+					if (DEBUG) System.out.println("  NOT FOUND");
+					return null;
+				}
+				if (!canAccess(owner, false, cn.access)) {
+					if (DEBUG) System.out.println("  widening");
+					classesToWiden.add(owner);
+				}
+				return cn;
+			}
+			
+			private void checkWideningField(String owner, String name, String desc) {
+				FieldType ft = unwrap(FieldType.of(desc));
+				if (ft instanceof ObjectType) {
+					checkWidening(((ObjectType) ft).getClassName().replace('.', '/'));
+				}
+				ClassNode cn = checkWidening(owner);
+				if (cn == null) return;
+				if (DEBUG) System.out.println(" ?#"+name+":"+desc);
+				if (checkWideningFieldIn(cn, name, desc)) return;
+				String check = cn.superName;
+				while (!"java/lang/Object".equals(check)) {
+					ClassNode superNode = classCache.computeIfAbsent(check, provider::getAsNode);
+					if (superNode == null) break;
+					if (checkWideningFieldIn(superNode, name, desc)) return;
+					check = superNode.superName;
+				}
+				if (DEBUG) System.out.println("    NOT FOUND");
+			}
+
+			private boolean checkWideningFieldIn(ClassNode cn, String name, String desc) {
+				for (FieldNode fn : cn.fields) {
+					if (fn.name.equals(name) && fn.desc.equals(desc)) {
+						if (DEBUG) System.out.println("    found");
+						if (!canAccess(cn.name, true, fn.access)) {
+							if (DEBUG) System.out.println("    widening");
+							membersToWiden.add(new Member(cn.name, FieldSignature.of(name, desc)));
+						}
+						return true;
+					}
+				}
+				return false;
+			}
+
+			private void checkWideningMethod(String owner, String name, String desc) {
+				MethodDescriptor md = MethodDescriptor.of(desc);
+				for (FieldType ft : md.getParamTypes()) {
+					ft = unwrap(ft);
+					if (ft instanceof ObjectType) {
+						checkWidening(((ObjectType) ft).getClassName().replace('.', '/'));
+					}
+				}
+				Type rtrn = unwrap(md.getReturnType());
+				if (rtrn instanceof ObjectType) {
+					checkWidening(((ObjectType) rtrn).getClassName().replace('.', '/'));
+				}
+				ClassNode cn = checkWidening(owner);
+				if (cn == null) return;
+				if (DEBUG) System.out.println(" ?::"+name+desc);
+				if (checkWideningMethodIn(cn, name, desc)) return;
+				String check = cn.superName;
+				while (!"java/lang/Object".equals(check)) {
+					ClassNode superNode = classCache.computeIfAbsent(check, provider::getAsNode);
+					if (superNode == null) break;
+					if (checkWideningMethodIn(superNode, name, desc)) return;
+					check = superNode.superName;
+				}
+				if (DEBUG) System.out.println("    NOT FOUND");
+			}
+
+			private <T extends Type> T unwrap(T ft) {
+				if (ft instanceof ArrayType) {
+					return (T) unwrap(((ArrayType)ft).getComponent());
+				}
+				return ft;
+			}
+
+			private boolean checkWideningMethodIn(ClassNode cn, String name, String desc) {
+				for (MethodNode mn : cn.methods) {
+					if (mn.name.equals(name) && mn.desc.equals(desc)) {
+						if (DEBUG) System.out.println("    found");
+						if (!canAccess(cn.name, true, mn.access)) {
+							if (DEBUG) System.out.println("    widening");
+							membersToWiden.add(new Member(cn.name, MethodSignature.of(name, desc)));
+						}
+						return true;
+					}
+				}
+				return false;
+			}
+
 			@Override
 			public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
 				resetLdcStage();
+				checkWideningField(owner, name, descriptor);
 				super.visitFieldInsn(opcode, owner, name, descriptor);
 			}
 
 			@Override
 			public void visitMethodInsn(int opcodeAndSource, String owner, String name, String descriptor, boolean isInterface) {
 				resetLdcStageOrEmitRemappedOwner(owner, name);
+				checkWideningMethod(owner, name, descriptor);
 				super.visitMethodInsn(opcodeAndSource, owner, name, descriptor, isInterface);
 			}
 
 			@Override
 			public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
 				resetLdcStage();
+				checkWideningMethod(owner, name, descriptor);
 				super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
 			}
 
 			@Override
 			public void visitTypeInsn(int opcode, String type) {
 				resetLdcStage();
+				checkWidening(type);
 				super.visitTypeInsn(opcode, type);
 			}
 
