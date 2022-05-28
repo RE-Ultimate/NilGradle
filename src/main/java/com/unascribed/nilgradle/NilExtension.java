@@ -1,18 +1,32 @@
 package com.unascribed.nilgradle;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
+import org.cadixdev.lorenz.MappingSet;
+import org.cadixdev.lorenz.io.srg.tsrg.TSrgWriter;
+import org.cadixdev.lorenz.model.ClassMapping;
+import org.cadixdev.lorenz.model.InnerClassMapping;
+import org.cadixdev.lorenz.model.TopLevelClassMapping;
 import org.codehaus.groovy.runtime.ResourceGroovyMethods;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.Dependency;
-
+import org.gradle.api.artifacts.ModuleDependency;
+import org.gradle.api.artifacts.ModuleVersionIdentifier;
+import org.gradle.api.artifacts.ResolvedArtifact;
 import com.grack.nanojson.JsonParser;
 import com.grack.nanojson.JsonParserException;
 
@@ -46,6 +60,54 @@ public abstract class NilExtension {
 	
 	public Dependency mojmap(String version, String side) throws JsonParserException, IOException {
 		return project.getDependencies().create("com.mojang.launcher:"+side+":"+findLauncherDownload(version, side+"_mappings")+"@txt");
+	}
+	
+	public Dependency forgeFrankenmapping(Object classMappingSpec, Object memberMappingSpec) {
+		ModuleDependency classMapping = (ModuleDependency)project.getDependencies().create(classMappingSpec);
+		ModuleDependency memberMapping = (ModuleDependency)project.getDependencies().create(memberMappingSpec);
+		ResolvedArtifact classMappingA = resolve(classMapping);
+		ResolvedArtifact memberMappingA = resolve(memberMapping);
+		String filename = "frankenmapping-"+id(classMappingA)+"x"+id(memberMappingA)+"-v2";
+		File cache = new File(project.getBuildDir(), "nil/cache/"+filename+".tsrg");
+		if (!cache.exists()) {
+			MappingSet classMappings = NilPlugin.detectAndLoad(classMappingA.getFile());
+			MappingSet memberMappings = NilPlugin.detectAndLoad(memberMappingA.getFile());
+			MappingSet franken = MappingSet.create();
+			for (TopLevelClassMapping tlcm : classMappings.getTopLevelClassMappings()) {
+				copy(tlcm, memberMappings, franken);
+			}
+			try (Writer w = new OutputStreamWriter(new FileOutputStream(cache), StandardCharsets.UTF_8)) {
+				new TSrgWriter(w).write(franken);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		return project.getDependencies().create("nilgradle.dynamic:"+filename+"@tsrg");
+	}
+
+	private String id(ResolvedArtifact artifact) {
+		ModuleVersionIdentifier id = artifact.getModuleVersion().getId();
+		return id.getGroup()+"."+id.getName()+"-"+id.getVersion();
+	}
+
+	private void copy(ClassMapping<?,?> inClass, MappingSet members, MappingSet out) {
+		ClassMapping<?, ?> outClass = out.getOrCreateClassMapping(inClass.getFullObfuscatedName());
+		outClass.setDeobfuscatedName(inClass.getDeobfuscatedName());
+		ClassMapping<?, ?> memberClass = members.getOrCreateClassMapping(inClass.getFullObfuscatedName());
+		memberClass.getMethodMappings().forEach(mm -> mm.copy(outClass));
+		memberClass.getFieldMappings().forEach(fm -> fm.copy(outClass));
+		for (InnerClassMapping icm : inClass.getInnerClassMappings()) {
+			copy(icm, members, out);
+		}
+	}
+
+	private ResolvedArtifact resolve(ModuleDependency dep) {
+		Configuration scratch = project.getConfigurations().create("nilInternalScratchConfig"+UUID.randomUUID());
+		scratch.getDependencies().add(dep);
+		Set<ResolvedArtifact> set = scratch.getResolvedConfiguration().getResolvedArtifacts();
+		if (set.isEmpty()) throw new IllegalArgumentException("Dependency has no artifacts");
+		if (set.size() > 1) throw new IllegalArgumentException("Dependency has multiple artifacts");
+		return set.iterator().next();
 	}
 
 	private String findLauncherDownload(String version, String artifact) throws JsonParserException, IOException {

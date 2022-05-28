@@ -601,11 +601,11 @@ public class NilPlugin implements Plugin<Project> {
 	private static final Slice SRG_HEADER = Slice.parse("[PK: ]");
 	private static final Slice RETROGUARD_HEADER = Slice.parse("[.option ]");
 
-	private MappingSet detectAndLoad(File file) {
+	public static MappingSet detectAndLoad(File file) {
 		return detectAndLoad(file, true);
 	}
 	
-	private MappingSet detectAndLoad(File file, boolean resolveTriplicate) {
+	public static MappingSet detectAndLoad(File file, boolean resolveTriplicate) {
 		try {
 			return detectAndLoad(new FileInputStream(file), resolveTriplicate);
 		} catch (IOException e) {
@@ -613,11 +613,11 @@ public class NilPlugin implements Plugin<Project> {
 		}
 	}
 	
-	private MappingSet detectAndLoad(InputStream rawIn) {
+	public static MappingSet detectAndLoad(InputStream rawIn) {
 		return detectAndLoad(rawIn, true);
 	}
 	
-	private MappingSet detectAndLoad(InputStream rawIn, boolean resolveTriplicate) {
+	public static MappingSet detectAndLoad(InputStream rawIn, boolean resolveTriplicate) {
 		try (PushbackInputStream in = new PushbackInputStream(rawIn, 32)) {
 			int testByte = in.read();
 			if (testByte == -1) {
@@ -720,7 +720,7 @@ public class NilPlugin implements Plugin<Project> {
 		}
 	}
 	
-	private String getTextWithoutClosing(InputStream in) throws IOException {
+	private static String getTextWithoutClosing(InputStream in) throws IOException {
 		BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
 		StringBuilder out = new StringBuilder();
 		char[] buf = new char[8192];
@@ -732,12 +732,12 @@ public class NilPlugin implements Plugin<Project> {
 		return out.toString();
 	}
 
-	private MappingSet load(TinyTree tree) throws IOException {
+	private static MappingSet load(TinyTree tree) throws IOException {
 		List<String> namespaces = tree.getMetadata().getNamespaces();
 		return new TinyMappingsReader(tree, namespaces.get(0), namespaces.get(namespaces.size()-1)).read();
 	}
 
-	private boolean startsWith(PushbackInputStream in, Slice slice) throws IOException {
+	private static boolean startsWith(PushbackInputStream in, Slice slice) throws IOException {
 		byte[] bys = new byte[slice.size()];
 		int read = 0;
 		while (read < bys.length) {
@@ -750,7 +750,7 @@ public class NilPlugin implements Plugin<Project> {
 		return res;
 	}
 	
-	private boolean startsWith(PushbackReader r, String str) throws IOException {
+	private static boolean startsWith(PushbackReader r, String str) throws IOException {
 		char[] chs = new char[str.length()];
 		int read = 0;
 		while (read < chs.length) {

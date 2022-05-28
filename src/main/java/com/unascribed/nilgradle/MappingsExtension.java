@@ -26,7 +26,7 @@ public abstract class MappingsExtension {
 		setWorkAlready = true;
 		noTransitive(project.getDependencies().add("nilInternalWorkMapping", dep));
 	}
-
+	
 	private void noTransitive(Dependency d) {
 		if (d instanceof ModuleDependency) {
 			((ModuleDependency)d).setTransitive(false);
