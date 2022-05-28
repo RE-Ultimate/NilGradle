@@ -250,6 +250,7 @@ public class NilPlugin implements Plugin<Project> {
 				for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
 					MappingSet workToTarget = MappingSetMerger.create(work.reverse(), en.getValue()).merge();
 					saveDebugMappings(workToTarget, "target/fromWork/"+en.getKey()+".tsrg");
+					saveDebugMappings(workToTarget.reverse(), "target/toWork/"+en.getKey()+".tsrg");
 					en.setValue(workToTarget);
 				}
 				remap(gameCfg, remappedGameCfg, work);
