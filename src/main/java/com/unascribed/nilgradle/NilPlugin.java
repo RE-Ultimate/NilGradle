@@ -47,6 +47,7 @@ import org.cadixdev.bombe.jar.JarFileClassProvider;
 import org.cadixdev.bombe.jar.JarManifestEntry;
 import org.cadixdev.bombe.jar.JarResourceEntry;
 import org.cadixdev.bombe.jar.asm.JarEntryRemappingTransformer;
+import org.cadixdev.bombe.type.FieldType;
 import org.cadixdev.bombe.type.signature.FieldSignature;
 import org.cadixdev.bombe.type.signature.MethodSignature;
 import org.cadixdev.lorenz.MappingSet;
@@ -514,12 +515,14 @@ public class NilPlugin implements Plugin<Project> {
 				Optional<? extends ClassMapping<?, ?>> cm = mappings.computeClassMapping(m.owner);
 				entry.put("owner", cm.map(ClassMapping::getFullDeobfuscatedName).orElse(m.owner));
 				if (m.signature instanceof MethodSignature) {
-					entry.put("sig", toString(cm.map(cmm -> cmm.getMethodMapping((MethodSignature)m.signature))
-							.orElse(Optional.empty()).map(MethodMapping::getDeobfuscatedSignature).orElse((MethodSignature) m.signature)));
+					MethodSignature ms = (MethodSignature)m.signature;
+					entry.put("sig", toString(cm.map(cmm -> cmm.getMethodMapping(ms))
+							.orElse(Optional.empty()).map(MethodMapping::getDeobfuscatedSignature).orElseGet(() -> deobf(mappings, ms))));
 					widenMethods.add(entry);
 				} else if (m.signature instanceof FieldSignature) {
-					entry.put("sig", toString(cm.map(cmm -> cmm.computeFieldMapping((FieldSignature)m.signature))
-							.orElse(Optional.empty()).map(FieldMapping::getDeobfuscatedSignature).orElse((FieldSignature) m.signature)));
+					FieldSignature fs = (FieldSignature)m.signature;
+					entry.put("sig", toString(cm.map(cmm -> cmm.computeFieldMapping(fs))
+							.orElse(Optional.empty()).map(FieldMapping::getDeobfuscatedSignature).orElseGet(() -> deobf(mappings, fs))));
 					widenFields.add(entry);
 				}
 			}
@@ -534,6 +537,16 @@ public class NilPlugin implements Plugin<Project> {
 			obj.put("widen", widen);
 		}
 		return obj;
+	}
+
+	private MethodSignature deobf(MappingSet mappings, MethodSignature ms) {
+		return MethodSignature.of(ms.getName(), mappings.deobfuscate(ms.getDescriptor()).toString());
+	}
+
+	private FieldSignature deobf(MappingSet mappings, FieldSignature fs) {
+		Optional<FieldType> type = fs.getType();
+		if (!type.isPresent()) return fs;
+		return FieldSignature.of(fs.getName(), mappings.deobfuscate(type.get()).toString());
 	}
 
 	private JsonObject toJson(ClassMapping<?, ?> cm, Predicate<Mapping<?, ?>> filter) {
