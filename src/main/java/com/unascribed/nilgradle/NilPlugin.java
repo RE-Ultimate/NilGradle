@@ -104,6 +104,7 @@ public class NilPlugin implements Plugin<Project> {
 	@Override
 	public void apply(Project project) {
 		this.project = project;
+		NilExtension.doAfterClean.clear();
 		project.getPlugins().apply(JavaPlugin.class);
 		
 		project.getRepositories().ivy((repo) -> {
@@ -161,6 +162,7 @@ public class NilPlugin implements Plugin<Project> {
 		Configuration gameCfg = project.getConfigurations().create("game");
 		Configuration remappedGameCfg = project.getConfigurations().create("remappedGame");
 		Configuration modCfg = project.getConfigurations().create("mod");
+		Configuration modViaCfg = project.getConfigurations().create("modVia");
 		Configuration remappedModCfg = project.getConfigurations().create("remappedMod");
 		Configuration targetMappingCfg = project.getConfigurations().create("nilInternalTargetMapping", c -> {
 			c.setVisible(false);
@@ -179,6 +181,7 @@ public class NilPlugin implements Plugin<Project> {
 		project.getConfigurations().add(gameCfg);
 		project.getConfigurations().add(remappedGameCfg);
 		project.getConfigurations().add(modCfg);
+		project.getConfigurations().add(modViaCfg);
 		project.getConfigurations().add(remappedModCfg);
 		project.getConfigurations().add(targetMappingCfg);
 		project.getConfigurations().add(viaMappingCfg);
@@ -204,7 +207,17 @@ public class NilPlugin implements Plugin<Project> {
 			copy.into("META-INF/nil");
 		});
 		
-		project.afterEvaluate(unused -> {
+		Task setup = project.getTasks().create("nilSetup");
+		
+		project.getTasks().getByName("compileJava").dependsOn(setup);
+		project.getTasks().getByName("clean").doLast(unused -> {
+			NilExtension.doAfterClean.forEach(Runnable::run);
+			NilExtension.doAfterClean.clear();
+		});
+		
+		setup.doFirst(unused -> {
+			NilExtension.doAfterClean.forEach(Runnable::run);
+			NilExtension.doAfterClean.clear();
 			if (nilExt.getId() != null && project.getVersion() != null) {
 				process.getInputs().property("version", project.getVersion());
 				process.filesMatching(nilExt.getId()+".nilmod.css", copy -> {
@@ -256,6 +269,7 @@ public class NilPlugin implements Plugin<Project> {
 				}
 				remap(gameCfg, remappedGameCfg, work);
 				remap(modCfg, remappedModCfg, work);
+				remap(modViaCfg, remappedModCfg, workRaw);
 				targetMappings.put("default", work.reverse());
 			} else {
 				// Don't need to remap
