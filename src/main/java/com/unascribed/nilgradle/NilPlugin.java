@@ -325,7 +325,7 @@ public class NilPlugin implements Plugin<Project> {
 								} catch (IOException e) {
 									log.warn("Error while detecting used mappings for target "+en.getKey(), e);
 								}
-								mappingsOut.put(en.getKey(), toJson(en.getValue(), re.getUsedMappings()::contains, classesToWiden, membersToWiden));
+								mappingsOut.put(en.getKey(), toJson(en.getValue(), nilExt.shouldKeepAllMappings() ? e -> true : re.getUsedMappings()::contains, classesToWiden, membersToWiden));
 							}
 							try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
 								JsonWriter.indent("\t").on(os).object(mappingsOut).done();
@@ -440,7 +440,12 @@ public class NilPlugin implements Plugin<Project> {
 								cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
 									private String className;
 									
+									private boolean dontWiden() {
+										return project.getExtensions().getByType(NilExtension.class).getDontWiden().contains(className);
+									}
+									
 									private int makePublic(int access) {
+										if (dontWiden()) return access;
 										if ((access & Opcodes.ACC_PUBLIC) == 0) {
 											access = (access & ~(Opcodes.ACC_PRIVATE|Opcodes.ACC_PROTECTED)) | Opcodes.ACC_PUBLIC;
 										}
@@ -448,6 +453,7 @@ public class NilPlugin implements Plugin<Project> {
 									}
 									
 									private void annotate(int access, BiFunction<String, Boolean, AnnotationVisitor> visit) {
+										if (dontWiden()) return;
 										if ((access & Opcodes.ACC_PUBLIC) == 0) {
 											String ann = null;
 											if ((access & Opcodes.ACC_PRIVATE) != 0) {

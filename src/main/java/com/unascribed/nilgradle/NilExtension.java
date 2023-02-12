@@ -9,6 +9,7 @@ import java.io.Writer;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,6 +36,9 @@ public abstract class NilExtension {
 	private Project project;
 	private String id;
 	private boolean standalone;
+	private boolean keepAllMappings;
+	
+	private final Set<String> dontWiden = new HashSet<>();
 	
 	private static final Pattern SAFE_PATTERN = Pattern.compile("^[a-zA-Z0-9._-]+$");
 	
@@ -46,12 +50,28 @@ public abstract class NilExtension {
 		this.standalone = standalone;
 	}
 	
+	public void dontWiden(String clazz) {
+		dontWiden.add(clazz);
+	}
+	
+	public void keepAllMappings() {
+		this.keepAllMappings = true;
+	}
+	
+	public Set<String> getDontWiden() {
+		return dontWiden;
+	}
+	
 	public String getId() {
 		return id;
 	}
 	
 	public boolean isStandalone() {
 		return standalone;
+	}
+	
+	public boolean shouldKeepAllMappings() {
+		return keepAllMappings;
 	}
 	
 	public Dependency minecraft(String version, String side) throws JsonParserException, IOException {
