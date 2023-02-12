@@ -15,6 +15,10 @@ public abstract class MappingsExtension {
 		noTransitive(project.getDependencies().add("nilInternalTargetMapping", dep));
 	}
 	
+	public void altTarget(Object dep) {
+		noTransitive(project.getDependencies().add("nilInternalAltTargetMapping", dep));
+	}
+	
 	public void via(Object dep) {
 		if (setViaAlready) throw new IllegalStateException("Cannot specify multiple via mappings");
 		setViaAlready = true;

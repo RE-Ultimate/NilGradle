@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.jar.JarFile;
 import java.util.zip.ZipEntry;
@@ -104,7 +105,6 @@ public class NilPlugin implements Plugin<Project> {
 	@Override
 	public void apply(Project project) {
 		this.project = project;
-		NilExtension.doAfterClean.clear();
 		project.getPlugins().apply(JavaPlugin.class);
 		
 		project.getRepositories().ivy((repo) -> {
@@ -164,18 +164,14 @@ public class NilPlugin implements Plugin<Project> {
 		Configuration modCfg = project.getConfigurations().create("mod");
 		Configuration modViaCfg = project.getConfigurations().create("modVia");
 		Configuration remappedModCfg = project.getConfigurations().create("remappedMod");
-		Configuration targetMappingCfg = project.getConfigurations().create("nilInternalTargetMapping", c -> {
+		Action<? super Configuration> setupMappingsConfig = c -> {
 			c.setVisible(false);
 			c.setCanBeConsumed(false);
-		});
-		Configuration viaMappingCfg = project.getConfigurations().create("nilInternalViaMapping", c -> {
-			c.setVisible(false);
-			c.setCanBeConsumed(false);
-		});
-		Configuration workMappingCfg = project.getConfigurations().create("nilInternalWorkMapping", c -> {
-			c.setVisible(false);
-			c.setCanBeConsumed(false);
-		});
+		};
+		Configuration targetMappingCfg = project.getConfigurations().create("nilInternalTargetMapping", setupMappingsConfig);
+		Configuration altTargetMappingCfg = project.getConfigurations().create("nilInternalAltTargetMapping", setupMappingsConfig);
+		Configuration viaMappingCfg = project.getConfigurations().create("nilInternalViaMapping", setupMappingsConfig);
+		Configuration workMappingCfg = project.getConfigurations().create("nilInternalWorkMapping", setupMappingsConfig);
 		
 		project.getConfigurations().add(loaderCfg);
 		project.getConfigurations().add(gameCfg);
@@ -184,6 +180,7 @@ public class NilPlugin implements Plugin<Project> {
 		project.getConfigurations().add(modViaCfg);
 		project.getConfigurations().add(remappedModCfg);
 		project.getConfigurations().add(targetMappingCfg);
+		project.getConfigurations().add(altTargetMappingCfg);
 		project.getConfigurations().add(viaMappingCfg);
 		project.getConfigurations().add(workMappingCfg);
 		
@@ -207,17 +204,7 @@ public class NilPlugin implements Plugin<Project> {
 			copy.into("META-INF/nil");
 		});
 		
-		Task setup = project.getTasks().create("nilSetup");
-		
-		project.getTasks().getByName("compileJava").dependsOn(setup);
-		project.getTasks().getByName("clean").doLast(unused -> {
-			NilExtension.doAfterClean.forEach(Runnable::run);
-			NilExtension.doAfterClean.clear();
-		});
-		
-		setup.doFirst(unused -> {
-			NilExtension.doAfterClean.forEach(Runnable::run);
-			NilExtension.doAfterClean.clear();
+		project.afterEvaluate(unused -> {
 			if (nilExt.getId() != null && project.getVersion() != null) {
 				process.getInputs().property("version", project.getVersion());
 				process.filesMatching(nilExt.getId()+".nilmod.css", copy -> {
@@ -236,11 +223,10 @@ public class NilPlugin implements Plugin<Project> {
 			if (files.size() > 1) throw new IllegalStateException("Multiple game dependencies present!");
 			Map<String, MappingSet> targetMappings = new HashMap<>();
 			for (ResolvedArtifact a : targetMappingCfg.getResolvedConfiguration().getResolvedArtifacts()) {
-				MappingSet tgt = detectAndLoad(a.getFile(), !"srg".equals(a.getClassifier()));
-				ModuleVersionIdentifier v = a.getModuleVersion().getId();
-				String name = v.getGroup()+"."+v.getName()+"-"+v.getVersion();
-				saveDebugMappings(tgt, "target/raw/"+name+".tsrg");
-				targetMappings.put(name, tgt);
+				loadTargetMappings(targetMappings, a, ms -> ms);
+			}
+			for (ResolvedArtifact a : altTargetMappingCfg.getResolvedConfiguration().getResolvedArtifacts()) {
+				loadTargetMappings(targetMappings, a, ms -> ms.reverse());
 			}
 			Set<File> workFiles = workMappingCfg.resolve();
 			if (!workFiles.isEmpty()) {
@@ -288,9 +274,15 @@ public class NilPlugin implements Plugin<Project> {
 							List<ClassProvider> providers = new ArrayList<>();
 							for (File f : project.getConfigurations().getByName("compileClasspath").resolve()) {
 								try {
-									File unwidened = new File(f.getParentFile(), f.getName().replaceFirst(".jar$", "-unwidened.jar"));
-									if (unwidened.exists()) {
-										providers.add(new JarFileClassProvider(new JarFile(unwidened)));
+									if (f.getName().endsWith(".jar")) {
+										File unwidened = new File(f.getParentFile(), f.getName().replaceFirst(".jar$", "-unwidened.jar"));
+										if (unwidened.exists()) {
+											providers.add(new JarFileClassProvider(new JarFile(unwidened)));
+										} else {
+											providers.add(new JarFileClassProvider(new JarFile(f)));
+										}
+									} else if (f.isDirectory()) {
+										providers.add(new DirectoryClassProvider(f.toPath()));
 									} else {
 										providers.add(new JarFileClassProvider(new JarFile(f)));
 									}
@@ -352,6 +344,21 @@ public class NilPlugin implements Plugin<Project> {
 				});
 			}
 		});
+	}
+
+	private void loadTargetMappings(Map<String, MappingSet> targetMappings, ResolvedArtifact a, Function<MappingSet, MappingSet> configurator) {
+		MappingSet tgt = detectAndLoad(a.getFile(), !"srg".equals(a.getClassifier()));
+		tgt = configurator.apply(tgt);
+		ModuleVersionIdentifier v = a.getModuleVersion().getId();
+		String name = v.getName();
+		if (!v.getGroup().isEmpty() && !"mappings".equals(v.getGroup())) {
+			name = v.getGroup()+"."+name;
+		}
+		if (!v.getVersion().isEmpty()) {
+			name = name+"-"+v.getVersion();
+		}
+		saveDebugMappings(tgt, "target/raw/"+name+".tsrg");
+		targetMappings.put(name, tgt);
 	}
 
 	private void remap(Configuration in, Configuration out, MappingSet mappings) {
@@ -437,7 +444,7 @@ public class NilPlugin implements Plugin<Project> {
 										if ((access & Opcodes.ACC_PUBLIC) == 0) {
 											access = (access & ~(Opcodes.ACC_PRIVATE|Opcodes.ACC_PROTECTED)) | Opcodes.ACC_PUBLIC;
 										}
-										return access;
+										return access & ~Opcodes.ACC_SYNTHETIC;
 									}
 									
 									private void annotate(int access, BiFunction<String, Boolean, AnnotationVisitor> visit) {
@@ -451,6 +458,9 @@ public class NilPlugin implements Plugin<Project> {
 												ann = "PackagePrivate";
 											}
 											visit.apply("Lnilloader/annotate/Originally"+ann+";", false).visitEnd();
+										}
+										if ((access & Opcodes.ACC_SYNTHETIC) != 0) {
+											visit.apply("Lnilloader/annotate/OriginallySynthetic;", false).visitEnd();
 										}
 									}
 									

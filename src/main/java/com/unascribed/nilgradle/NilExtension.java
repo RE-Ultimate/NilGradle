@@ -9,7 +9,6 @@ import java.io.Writer;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,8 +32,6 @@ import com.grack.nanojson.JsonParserException;
 
 public abstract class NilExtension {
 
-	public static final List<Runnable> doAfterClean = new ArrayList<>();
-	
 	private Project project;
 	private String id;
 	private boolean standalone;
@@ -72,22 +69,20 @@ public abstract class NilExtension {
 		ResolvedArtifact memberMappingA = resolve(memberMapping);
 		String filename = "frankenmapping-"+id(classMappingA)+"x"+id(memberMappingA)+"-v2";
 		File cache = new File(project.getBuildDir(), "nil/cache/"+filename+".tsrg");
-		doAfterClean.add(() -> {
-			if (!cache.exists()) {
-				cache.getParentFile().mkdirs();
-				MappingSet classMappings = NilPlugin.detectAndLoad(classMappingA.getFile());
-				MappingSet memberMappings = NilPlugin.detectAndLoad(memberMappingA.getFile());
-				MappingSet franken = MappingSet.create();
-				for (TopLevelClassMapping tlcm : classMappings.getTopLevelClassMappings()) {
-					copy(tlcm, memberMappings, franken);
-				}
-				try (Writer w = new OutputStreamWriter(new FileOutputStream(cache), StandardCharsets.UTF_8)) {
-					new TSrgWriter(w).write(franken);
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
+		if (!cache.exists()) {
+			cache.getParentFile().mkdirs();
+			MappingSet classMappings = NilPlugin.detectAndLoad(classMappingA.getFile());
+			MappingSet memberMappings = NilPlugin.detectAndLoad(memberMappingA.getFile());
+			MappingSet franken = MappingSet.create();
+			for (TopLevelClassMapping tlcm : classMappings.getTopLevelClassMappings()) {
+				copy(tlcm, memberMappings, franken);
 			}
-		});
+			try (Writer w = new OutputStreamWriter(new FileOutputStream(cache), StandardCharsets.UTF_8)) {
+				new TSrgWriter(w).write(franken);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
 		return project.getDependencies().create("nilgradle.dynamic:"+filename+"@tsrg");
 	}
 
