@@ -8,10 +8,13 @@ sourceCompatibility = 8
 targetCompatibility = 8
 
 group = 'com.unascribed.nilgradle'
-version = '1.4.2'
+version = '1.4.3'
 
 repositories {
 	mavenCentral()
+	maven {
+		url 'https://repo.sleeping.town'
+	}
 	maven {
 		url 'https://maven.fabricmc.net/'
 	}
@@ -43,6 +46,8 @@ dependencies {
 	shade 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
 	
 	shade 'org.quiltmc:quiltflower:1.8.1'
+	
+	shade 'com.unascribed:flexver-java:1.0.2'
 }
 
 gradlePlugin {
@@ -89,6 +94,7 @@ shadowJar {
 	relocate 'org.objectweb', 'com.unascribed.nilgradle.repackage.org.objectweb'
 	relocate 'org.quiltmc', 'com.unascribed.nilgradle.repackage.org.quiltmc'
 	relocate 'org.jetbrains', 'com.unascribed.nilgradle.repackage.org.jetbrains'
+	relocate 'com.unascribed.flexver', 'com.unascribed.nilgradle.repackage.com.unascribed.flexver'
 }
 
 tasks.build.dependsOn tasks.shadowJar

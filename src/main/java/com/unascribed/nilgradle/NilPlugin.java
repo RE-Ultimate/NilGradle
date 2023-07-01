@@ -85,6 +85,7 @@ import org.slf4j.LoggerFactory;
 import com.grack.nanojson.JsonArray;
 import com.grack.nanojson.JsonObject;
 import com.grack.nanojson.JsonWriter;
+import com.unascribed.flexver.FlexVerComparator;
 
 public class NilPlugin implements Plugin<Project> {
 
@@ -204,11 +205,19 @@ public class NilPlugin implements Plugin<Project> {
 				});
 			}
 			if (nilExt.isStandalone()) {
+				String version = null;
 				Jar jar = (Jar)project.getTasks().getByName("jar");
-				for (File f : loaderCfg.resolve()) {
-					jar.from(project.zipTree(f));
+				for (ResolvedArtifact ra : loaderCfg.getResolvedConfiguration().getResolvedArtifacts()) {
+					version = ra.getModuleVersion().getId().getVersion();
+					jar.from(project.zipTree(ra.getFile()));
 				}
-				jar.getManifest().attributes(Collections.singletonMap("Premain-Class", "nilloader.NilLoader"));
+				if (version == null || FlexVerComparator.compare(version, "1.3.0") >= 0) {
+					jar.getManifest().attributes(Collections.singletonMap("Premain-Class", "nilloader.NilAgent"));
+					jar.getManifest().attributes(Collections.singletonMap("Agent-Class", "nilloader.NilAgent"));
+					jar.getManifest().attributes(Collections.singletonMap("Can-Retransform-Classes", "true"));
+				} else {
+					jar.getManifest().attributes(Collections.singletonMap("Premain-Class", "nilloader.NilLoader"));
+				}
 			}
 			Set<File> gameFiles = gameCfg.resolve();
 			if (gameFiles.isEmpty()) throw new IllegalStateException("No game dependency present! Retrieving and remapping a game jar is the entire purpose of NilGradle - if you're making a universal nilmod, you can just use the Gradle Java plugin.");
