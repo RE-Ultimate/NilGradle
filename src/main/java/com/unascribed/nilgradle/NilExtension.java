@@ -91,8 +91,8 @@ public abstract class NilExtension {
 		File cache = new File(project.getBuildDir(), "nil/cache/"+filename+".tsrg");
 		if (!cache.exists()) {
 			cache.getParentFile().mkdirs();
-			MappingSet classMappings = NilPlugin.detectAndLoad(classMappingA.getFile());
-			MappingSet memberMappings = NilPlugin.detectAndLoad(memberMappingA.getFile());
+			MappingSet classMappings = MappingDetector.detectAndLoad(classMappingA.getFile());
+			MappingSet memberMappings = MappingDetector.detectAndLoad(memberMappingA.getFile());
 			MappingSet franken = MappingSet.create();
 			for (TopLevelClassMapping tlcm : classMappings.getTopLevelClassMappings()) {
 				copy(tlcm, memberMappings, franken);
