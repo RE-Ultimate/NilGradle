@@ -1,6 +1,6 @@
 package com.unascribed.nilgradle;
 
-import org.cadixdev.bombe.jar.ClassProvider;
+import org.cadixdev.bombe.asm.jar.ClassProvider;
 import org.cadixdev.bombe.util.ByteStreams;
 
 import java.io.ByteArrayOutputStream;

@@ -4,14 +4,11 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
  */
 
-package org.cadixdev.atlas;
-
+package org.cadixdev.atlas.util;
 
 import java.util.List;
 
 import org.cadixdev.bombe.asm.jar.ClassProvider;
-
-
 
 /**
  * A {@link ClassProvider class provider} backed by many other class providers.
@@ -19,17 +16,17 @@ import org.cadixdev.bombe.asm.jar.ClassProvider;
  * @author Jamie Mansfield
  * @since 0.1.0
  */
-public class FixedCompositeClassProvider implements ClassProvider {
+public class CompositeClassProvider implements ClassProvider {
 
-    private final List<org.cadixdev.bombe.jar.ClassProvider> providers; // NIL: Bridge repackaged API
+    private final List<ClassProvider> providers;
 
-    public FixedCompositeClassProvider(final List<org.cadixdev.bombe.jar.ClassProvider> providers) { // NIL: Bridge repackaged API
+    public CompositeClassProvider(final List<ClassProvider> providers) {
         this.providers = providers;
     }
 
     @Override
     public byte[] get(final String klass) {
-        for (final org.cadixdev.bombe.jar.ClassProvider provider : this.providers) { // NIL: Bridge repackaged API
+        for (final ClassProvider provider : this.providers) {
             final byte[] raw = provider.get(klass);
             if (raw != null) return raw;
         }

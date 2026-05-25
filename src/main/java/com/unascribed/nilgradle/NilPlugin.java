@@ -33,17 +33,17 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 
-import org.cadixdev.atlas.FixedAtlas;
-import org.cadixdev.atlas.FixedCompositeClassProvider;
+import org.cadixdev.atlas.Atlas;
+import org.cadixdev.atlas.util.CompositeClassProvider;
 import org.cadixdev.bombe.analysis.InheritanceProvider;
 import org.cadixdev.bombe.asm.analysis.ClassProviderInheritanceProvider;
-import org.cadixdev.bombe.jar.ClassProvider;
+import org.cadixdev.bombe.asm.jar.ClassProvider;
+import org.cadixdev.bombe.asm.jar.JarEntryRemappingTransformer;
+import org.cadixdev.bombe.asm.jar.JarFileClassProvider;
 import org.cadixdev.bombe.jar.JarClassEntry;
 import org.cadixdev.bombe.jar.JarEntryTransformer;
-import org.cadixdev.bombe.jar.JarFileClassProvider;
 import org.cadixdev.bombe.jar.JarManifestEntry;
 import org.cadixdev.bombe.jar.JarResourceEntry;
-import org.cadixdev.bombe.jar.asm.JarEntryRemappingTransformer;
 import org.cadixdev.bombe.type.FieldType;
 import org.cadixdev.bombe.type.signature.FieldSignature;
 import org.cadixdev.bombe.type.signature.MethodSignature;
@@ -266,83 +266,81 @@ public class NilPlugin implements Plugin<Project> {
 			if (!targetMappings.isEmpty()) {
 				// if this is a lambda, Gradle yells
 				// https://docs.gradle.org/7.4.2/userguide/validation_problems.html#implementation_unknown
-				process.doFirst(new Action<Task>() {
-					@Override
-					public void execute(Task task) {
-						mappingsJsonOutFile.getParentFile().mkdirs();
-						Path classDir = ((JavaCompile)project.getTasks().getByName("compileJava")).getDestinationDirectory().get().getAsFile().toPath();
-						if (Files.exists(classDir)) {
-							List<ClassProvider> providers = new ArrayList<>();
-							for (File f : project.getConfigurations().getByName("compileClasspath").resolve()) {
-								try {
-									if (f.getName().endsWith(".jar")) {
-										File unwidened = new File(f.getParentFile(), f.getName().replaceFirst(".jar$", "-unwidened.jar"));
-										if (unwidened.exists()) {
-											providers.add(new JarFileClassProvider(new JarFile(unwidened)));
-										} else {
-											providers.add(new JarFileClassProvider(new JarFile(f)));
-										}
-									} else if (f.isDirectory()) {
-										providers.add(new DirectoryClassProvider(f.toPath()));
+				process.doFirst(new Action<Task>() { @Override public void execute(Task task) {
+					mappingsJsonOutFile.getParentFile().mkdirs();
+					Path classDir = ((JavaCompile)project.getTasks().getByName("compileJava")).getDestinationDirectory().get().getAsFile().toPath();
+					if (Files.exists(classDir)) {
+						List<ClassProvider> providers = new ArrayList<>();
+						for (File f : project.getConfigurations().getByName("compileClasspath").resolve()) {
+							try {
+								if (f.getName().endsWith(".jar")) {
+									File unwidened = new File(f.getParentFile(), f.getName().replaceFirst(".jar$", "-unwidened.jar"));
+									if (unwidened.exists()) {
+										providers.add(new JarFileClassProvider(new JarFile(unwidened)));
 									} else {
 										providers.add(new JarFileClassProvider(new JarFile(f)));
 									}
-								} catch (IOException e) {
-									log.warn("Error reading "+f, e);
+								} else if (f.isDirectory()) {
+									providers.add(new DirectoryClassProvider(f.toPath()));
+								} else {
+									providers.add(new JarFileClassProvider(new JarFile(f)));
 								}
-							}
-							providers.add(new DirectoryClassProvider(classDir));
-							FixedCompositeClassProvider provider = new FixedCompositeClassProvider(providers);
-							InheritanceProvider ip = new ClassProviderInheritanceProvider(Opcodes.ASM9, provider);
-							JsonObject mappingsOut = new JsonObject();
-							Set<String> classesToWiden = new HashSet<>();
-							Set<Member> membersToWiden = new HashSet<>();
-							for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
-								for (TopLevelClassMapping tlcm : en.getValue().getTopLevelClassMappings()) {
-									completeRecursively(tlcm, ip);
-								}
-								TrackingLorenzRemapper re = new TrackingLorenzRemapper(en.getValue(), ip);
-								try {
-									Files.walkFileTree(classDir, new SimpleFileVisitor<Path>() {
-										@Override
-										public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-											if (file.getFileName().toString().endsWith(".class")) {
-												try (InputStream in = Files.newInputStream(file)) {
-													ClassReader reader = new ClassReader(in);
-													ClassWriter cw = new ClassWriter(reader, 0);
-													ClassRemapper remapper = new NilGradleClassRemapper(en.getValue(), cw, re, provider, classesToWiden, membersToWiden);
-													reader.accept(remapper, 0);
-													// we don't actually want the class data, but
-													// linking a ClassReader to a ClassWriter causes
-													// it to properly visit code, which is necessary
-													// for us to generate a complete mapping
-													cw.toByteArray();
-												}
-											}
-											return FileVisitResult.CONTINUE;
-										}
-
-									});
-								} catch (IOException e) {
-									log.warn("Error while detecting used mappings for target "+en.getKey(), e);
-								}
-								mappingsOut.put(en.getKey(), toJson(en.getValue(), nilExt.shouldKeepAllMappings() ? e -> true : re.getUsedMappings()::contains, classesToWiden, membersToWiden));
-							}
-							try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
-								JsonWriter.indent("\t").on(os).object(mappingsOut).done();
 							} catch (IOException e) {
-								log.warn("Error while writing mappings", e);
-							}
-						} else {
-							// no code, no mappings
-							try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
-								os.write("{}".getBytes(StandardCharsets.UTF_8));
-							} catch (IOException e) {
-								log.warn("Error while writing mappings", e);
+								log.warn("Error reading "+f, e);
 							}
 						}
+						providers.add(new DirectoryClassProvider(classDir));
+						CompositeClassProvider provider = new CompositeClassProvider(providers);
+						InheritanceProvider ip = new ClassProviderInheritanceProvider(Opcodes.ASM9, provider);
+						JsonObject mappingsOut = new JsonObject();
+						Set<String> classesToWiden = new HashSet<>();
+						Set<Member> membersToWiden = new HashSet<>();
+						for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
+							System.err.println("Processing target mappings \""+en.getKey()+"\"");
+							for (TopLevelClassMapping tlcm : en.getValue().getTopLevelClassMappings()) {
+								completeRecursively(tlcm, ip);
+							}
+							TrackingLorenzRemapper re = new TrackingLorenzRemapper(en.getValue(), ip);
+							try {
+								Files.walkFileTree(classDir, new SimpleFileVisitor<Path>() {
+									@Override
+									public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+										if (file.getFileName().toString().endsWith(".class")) {
+											try (InputStream in = Files.newInputStream(file)) {
+												ClassReader reader = new ClassReader(in);
+												ClassWriter cw = new ClassWriter(reader, 0);
+												ClassRemapper remapper = new NilGradleClassRemapper(en.getValue(), cw, re, provider, classesToWiden, membersToWiden);
+												reader.accept(remapper, 0);
+												// we don't actually want the class data, but
+												// linking a ClassReader to a ClassWriter causes
+												// it to properly visit code, which is necessary
+												// for us to generate a complete mapping
+												cw.toByteArray();
+											}
+										}
+										return FileVisitResult.CONTINUE;
+									}
+
+								});
+							} catch (IOException e) {
+								log.warn("Error while detecting used mappings for target "+en.getKey(), e);
+							}
+							mappingsOut.put(en.getKey(), toJson(en.getValue(), nilExt.shouldKeepAllMappings() ? e -> true : re.getUsedMappings()::contains, classesToWiden, membersToWiden));
+						}
+						try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
+							JsonWriter.indent("\t").on(os).object(mappingsOut).done();
+						} catch (IOException e) {
+							log.warn("Error while writing mappings", e);
+						}
+					} else {
+						// no code, no mappings
+						try (OutputStream os = new FileOutputStream(mappingsJsonOutFile)) {
+							os.write("{}".getBytes(StandardCharsets.UTF_8));
+						} catch (IOException e) {
+							log.warn("Error while writing mappings", e);
+						}
 					}
-				});
+				} });
 			}
 		});
 	}
@@ -406,7 +404,7 @@ public class NilPlugin implements Plugin<Project> {
 			File widenedCache = new File(project.getBuildDir(), "nil/cache/"+name+".jar");
 			if (!cache.exists() || !widenedCache.exists()) {
 				System.out.println("Remapping "+name+"...");
-				try (FixedAtlas atlas = new FixedAtlas()) {
+				try (Atlas atlas = new Atlas()) {
 					atlas.getClasspath().add(merged.toPath());
 					atlas.install(ctx -> {
 						for (TopLevelClassMapping tlcm : mappings.getTopLevelClassMappings()) {

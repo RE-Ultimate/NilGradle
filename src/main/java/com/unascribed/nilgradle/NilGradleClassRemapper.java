@@ -1,8 +1,10 @@
 package com.unascribed.nilgradle;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Consumer;
 import java.util.Optional;
 import java.util.Set;
 
@@ -93,6 +95,7 @@ public class NilGradleClassRemapper extends ClassRemapper {
 
 	private void scanAndMemoizeRemapMethod(String owner, String name, String descriptor) {
 		Map<MethodSignature, String> superSigs = new HashMap<>();
+		Map<MethodSignature, String> rawSuperSigs = new HashMap<>();
 		String check = owner;
 		while (!"java/lang/Object".equals(check)) {
 			ClassNode node = classCache.computeIfAbsent(check, provider::getAsNode);
@@ -101,18 +104,37 @@ public class NilGradleClassRemapper extends ClassRemapper {
 			findMethod(name, descriptor, superSigs, node);
 			check = node.superName;
 		}
-		if (superSigs.size() > 1) {
-			System.err.println("UNRESOLVABLE CONFLICT: "+owner+"."+name+descriptor+" has multiple possible obfuscated signatures:");
-			for (Entry<MethodSignature, String> en : superSigs.entrySet()) {
-				System.err.println(" - "+en.getKey().toJvmsIdentifier()+" defined in "+en.getValue());
+		rawSuperSigs.putAll(superSigs);
+		boolean conflict = superSigs.size() > 1;
+		String conflictMessage = null;
+		if (superSigs.size() == 2) {
+			Iterator<MethodSignature> i = superSigs.keySet().iterator();
+			MethodSignature a = i.next();
+			MethodSignature b = i.next();
+			if (a.getName().length() > b.getName().length()) {
+				superSigs.remove(b);
+				conflictMessage = "Boldly assuming you want the longer one!";
+			} else if (b.getName().length() > a.getName().length()) {
+				superSigs.remove(a);
+				conflictMessage = "Boldly assuming you want the longer one!";
 			}
-			System.err.println("The method will not be remapped.");
+		}
+		if (superSigs.size() > 1) {
+			conflictMessage = "The method will not be remapped.";
 		} else if (superSigs.size() == 1) {
 			MethodMapping mm = mappings.getOrCreateClassMapping(owner).getOrCreateMethodMapping(name, descriptor);
 			MethodSignature sig = superSigs.keySet().iterator().next();
 			mm.setDeobfuscatedName(sig.getName());
 			// track the mapping
 			remapper.mapMethodName(owner, name, descriptor);
+		}
+		if (conflict) {
+			Consumer<String> log = superSigs.size() > 1 ? NilPlugin.log::error : NilPlugin.log::warn;
+			log.accept((superSigs.size() > 1 ? "UNRESOLVABLE " : "")+"CONFLICT: "+owner+"."+name+descriptor+" has multiple possible obfuscated signatures:");
+			for (Entry<MethodSignature, String> en : rawSuperSigs.entrySet()) {
+				log.accept(" - "+en.getKey().toJvmsIdentifier()+" defined in "+en.getValue());
+			}
+			log.accept(conflictMessage);
 		}
 	}
 
@@ -200,7 +222,12 @@ public class NilGradleClassRemapper extends ClassRemapper {
 							}
 							
 							@Override
-							public AnnotationVisitor visitAnnotation(String name, String descriptor) {
+							public AnnotationVisitor visitAnnotation(String name, String subDescriptor) {
+								return this;
+							}
+							
+							@Override
+							public AnnotationVisitor visitArray(String name) {
 								return this;
 							}
 						};

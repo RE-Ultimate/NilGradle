@@ -10,7 +10,7 @@ targetCompatibility = 8
 
 base {
 	group = 'com.unascribed.nilgradle'
-	version = '1.4.4'
+	version = '1.4.5'
 }
 
 repositories {
@@ -42,8 +42,6 @@ dependencies {
 	shade 'org.cadixdev:lorenz-asm:0.5.8'
 	shade 'org.cadixdev:lorenz-io-proguard:0.5.8'
 	shade 'net.fabricmc:lorenz-tiny:3.0.0'
-	
-	shade 'org.cadixdev:atlas:0.3.0-20210102.221027-6'
 	
 	shade 'org.vineflower:vineflower:1.10.1'
 	

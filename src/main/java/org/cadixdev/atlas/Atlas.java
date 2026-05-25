@@ -6,11 +6,12 @@
 
 package org.cadixdev.atlas;
 
-import org.cadixdev.atlas.jar.FixedJarFile;
+import org.cadixdev.atlas.jar.JarFile;
+import org.cadixdev.atlas.util.CompositeClassProvider;
 import org.cadixdev.atlas.util.JarRepacker;
 import org.cadixdev.bombe.analysis.InheritanceProvider;
 import org.cadixdev.bombe.asm.analysis.ClassProviderInheritanceProvider;
-import org.cadixdev.bombe.jar.ClassProvider;
+import org.cadixdev.bombe.asm.jar.ClassProvider;
 import org.cadixdev.bombe.jar.JarEntryTransformer;
 import org.objectweb.asm.Opcodes;
 
@@ -19,6 +20,8 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 
 /**
@@ -31,10 +34,52 @@ import java.util.function.Function;
  * @author Jamie Mansfield
  * @since 0.1.0
  */
-public class FixedAtlas implements Closeable {
+public class Atlas implements Closeable {
 
     private final List<Function<AtlasTransformerContext, JarEntryTransformer>> transformers = new ArrayList<>();
     private final List<Path> classpath = new ArrayList<>();
+
+    private final ExecutorService executorService;
+    private final boolean manageExecutor;
+
+    /**
+     * Creates an Atlas with an associated executor service.
+     *
+     * @param executorService The executor service
+     * @param manageExecutor Whether to shutdown the executor service when closing the atlas
+     * @since 0.2.1
+     */
+    private Atlas(final ExecutorService executorService, final boolean manageExecutor) {
+        this.executorService = executorService;
+        this.manageExecutor = manageExecutor;
+    }
+
+    /**
+     * Creates an Atlas with an associated executor service.
+     *
+     * @param executorService The executor service
+     * @since 0.2.1
+     */
+    public Atlas(final ExecutorService executorService) {
+        this(executorService, false);
+    }
+
+    /**
+     * Creates an Atlas with a default executor service (made with {@link Executors#newWorkStealingPool(int)}).
+     *
+     * @param parallelism The targeted parallelism level
+     * @since 0.2.1
+     */
+    public Atlas(final int parallelism) {
+        this(Executors.newWorkStealingPool(parallelism), true);
+    }
+
+    /**
+     * Creates an Atlas with a default executor service, {@link Executors#newWorkStealingPool()}.
+     */
+    public Atlas() {
+        this(Executors.newWorkStealingPool(), true);
+    }
 
     /**
      * Gets the classpath available to the {@link InheritanceProvider inheritance provider}.
@@ -55,7 +100,7 @@ public class FixedAtlas implements Closeable {
      * @param transformer The transformer constructor
      * @return {@code this}, for chaining
      */
-    public FixedAtlas install(final Function<AtlasTransformerContext, JarEntryTransformer> transformer) {
+    public Atlas install(final Function<AtlasTransformerContext, JarEntryTransformer> transformer) {
         this.transformers.add(transformer);
         return this;
     }
@@ -67,16 +112,16 @@ public class FixedAtlas implements Closeable {
      * @param output The output binary
      * @throws IOException Should an issue occur reading the input JAR, or
      *                     reading the output JAR
-     * @see #run(FixedJarFile, Path)
+     * @see #run(JarFile, Path)
      */
     public void run(final Path input, final Path output) throws IOException {
-        try (final FixedJarFile jar = new FixedJarFile(input)) {
+        try (final JarFile jar = new JarFile(input)) {
             this.run(jar, output);
         }
     }
 
     /**
-     * Runs the Atlas on the given input {@link FixedJarFile jar}, saving the result to the
+     * Runs the Atlas on the given input {@link JarFile jar}, saving the result to the
      * given output path.
      *
      * @param jar The input jar
@@ -84,17 +129,17 @@ public class FixedAtlas implements Closeable {
      * @throws IOException Should an issue occur reading the input JAR, or
      *                     reading the output JAR
      */
-    public void run(final FixedJarFile jar, final Path output) throws IOException {
+    public void run(final JarFile jar, final Path output) throws IOException {
         // Create a classpath for the current JAR file
         final List<ClassProvider> classpath = new ArrayList<>();
         classpath.add(jar);
         for (final Path jarPath : this.classpath) {
-            classpath.add(new FixedJarFile(jarPath)); // NIL: Use FixedJarFile
+            classpath.add(new JarFile(jarPath));
         }
 
         // Create the context for the JAR file
         final AtlasTransformerContext context = new AtlasTransformerContext(
-                new ClassProviderInheritanceProvider(Opcodes.ASM9, new FixedCompositeClassProvider(classpath)) // NIL: Use ASM9
+        		new ClassProviderInheritanceProvider(Opcodes.ASM9, new CompositeClassProvider(classpath)) // NIL: Use ASM9
         );
 
         // Construct the transformers
@@ -124,6 +169,10 @@ public class FixedAtlas implements Closeable {
      */
     @Override
     public void close() throws IOException {
+        if (this.manageExecutor) {
+            this.executorService.shutdown();
+        }
+
         this.classpath.clear();
     }
 
