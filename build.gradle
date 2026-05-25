@@ -10,7 +10,7 @@ targetCompatibility = 8
 
 base {
 	group = 'com.unascribed.nilgradle'
-	version = '1.4.5'
+	version = '1.4.6'
 }
 
 repositories {
