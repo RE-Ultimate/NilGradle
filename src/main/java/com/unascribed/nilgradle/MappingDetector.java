@@ -49,6 +49,7 @@ public class MappingDetector {
 		return detectAndLoad(rawIn, true);
 	}
 
+	@SuppressWarnings("resource")
 	public static MappingSet detectAndLoad(InputStream rawIn, boolean resolveTriplicate) {
 		try (PushbackInputStream in = new PushbackInputStream(rawIn, 32)) {
 			int testByte = in.read();

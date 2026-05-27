@@ -8,7 +8,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.UncheckedIOException;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -20,7 +19,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -110,22 +108,22 @@ public class NilPlugin implements Plugin<Project> {
 		});
 		
 		String[] eras = {
-				"Beta",
-				"Alpha",
-				"Infdev",
-				"Indev",
-				"Classic",
-				"Pre-Classic"
+				"beta",
+				"alpha",
+				"infdev",
+				"indev",
+				"classic",
+				"preclassic"
 		};
 		for (String era : eras) {
 			project.getRepositories().ivy((repo) -> {
-				repo.setName("NilGradle: archive.org Minecraft-JE-"+era);
-				repo.artifactPattern("https://archive.org/download/Minecraft-JE-"+era+"/[module]/[module].[ext]");
+				repo.setName("NilGradle: OmniArchive "+era);
+				repo.artifactPattern("https://vault.omniarchive.uk/archive/java/[module]-"+era+"/[revision].[ext]");
 				repo.metadataSources((src) -> {
 					src.artifact();
 				});
 				repo.content((desc) -> {
-					desc.includeGroup("org.archive.minecraft-je-"+era.toLowerCase(Locale.ROOT));
+					desc.includeGroup("uk.omniarchive."+era);
 				});
 			});
 		}
@@ -143,7 +141,7 @@ public class NilPlugin implements Plugin<Project> {
 		
 		project.getRepositories().flatDir((repo) -> {
 			repo.setName("NilGradle: Dynamic outputs");
-			repo.dir(new File(project.getBuildDir(), "nil/cache"));
+			repo.dir(new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/cache"));
 			repo.content((desc) -> {
 				desc.includeGroup("nilgradle.dynamic");
 			});
@@ -189,7 +187,7 @@ public class NilPlugin implements Plugin<Project> {
 		MappingsExtension mappingsExt = project.getExtensions().create("mappings", MappingsExtension.class);
 		mappingsExt.setProject(project);
 
-		File mappingsJsonOutFile = new File(project.getBuildDir(), "nil/output/mappings.json");
+		File mappingsJsonOutFile = new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/output/mappings.json");
 		ProcessResources process = (ProcessResources)project.getTasks().getByName("processResources");
 		// BAD
 		process.getInputs().property("cachebuster", UUID.randomUUID().toString());
@@ -368,7 +366,7 @@ public class NilPlugin implements Plugin<Project> {
 				appendix = "-"+artifact.getClassifier();
 			}
 			String name = (v.getGroup()+"."+v.getName()+"-"+v.getVersion()+appendix).replace(':', '_');
-			File merged = merge == null ? artifact.getFile() : new File(project.getBuildDir(), "nil/cache/"+name+"-merged.jar");
+			File merged = merge == null ? artifact.getFile() : new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/cache/"+name+"-merged.jar");
 			if (!merged.exists() && merge != null) {
 				merged.getParentFile().mkdirs();
 				Set<String> alreadyCopied = new HashSet<>();
@@ -400,8 +398,8 @@ public class NilPlugin implements Plugin<Project> {
 					}
 				}
 			}
-			File cache = new File(project.getBuildDir(), "nil/cache/"+name+"-unwidened.jar");
-			File widenedCache = new File(project.getBuildDir(), "nil/cache/"+name+".jar");
+			File cache = new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/cache/"+name+"-unwidened.jar");
+			File widenedCache = new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/cache/"+name+".jar");
 			if (!cache.exists() || !widenedCache.exists()) {
 				System.out.println("Remapping "+name+"...");
 				try (Atlas atlas = new Atlas()) {
@@ -662,10 +660,10 @@ public class NilPlugin implements Plugin<Project> {
 	}
 	
 	private void saveDebugMappings(MappingSet mappings, String filename) {
-		File file = new File(project.getBuildDir(), "nil/debug/mappings/"+filename);
+		File file = new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/debug/mappings/"+filename);
 		file.getParentFile().mkdirs();
-		try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
-			new TSrgWriter(w).write(mappings);
+		try (TSrgWriter tsw = new TSrgWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8))) {
+			tsw.write(mappings);
 		} catch (IOException e) {}
 	}
 

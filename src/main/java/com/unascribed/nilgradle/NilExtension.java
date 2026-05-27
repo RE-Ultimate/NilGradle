@@ -5,7 +5,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
-import java.io.Writer;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -88,7 +87,7 @@ public abstract class NilExtension {
 		ResolvedArtifact classMappingA = resolve(classMapping);
 		ResolvedArtifact memberMappingA = resolve(memberMapping);
 		String filename = "frankenmapping-"+id(classMappingA)+"x"+id(memberMappingA)+"-v2";
-		File cache = new File(project.getBuildDir(), "nil/cache/"+filename+".tsrg");
+		File cache = new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/cache/"+filename+".tsrg");
 		if (!cache.exists()) {
 			cache.getParentFile().mkdirs();
 			MappingSet classMappings = MappingDetector.detectAndLoad(classMappingA.getFile());
@@ -97,8 +96,8 @@ public abstract class NilExtension {
 			for (TopLevelClassMapping tlcm : classMappings.getTopLevelClassMappings()) {
 				copy(tlcm, memberMappings, franken);
 			}
-			try (Writer w = new OutputStreamWriter(new FileOutputStream(cache), StandardCharsets.UTF_8)) {
-				new TSrgWriter(w).write(franken);
+			try (TSrgWriter tsw = new TSrgWriter(new OutputStreamWriter(new FileOutputStream(cache), StandardCharsets.UTF_8))) {
+				tsw.write(franken);
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
@@ -173,7 +172,11 @@ public abstract class NilExtension {
 	}
 
 	public Dependency minecraftArchive(String era, String version) {
-		return project.getDependencies().create("org.archive.minecraft-je-"+era+":"+version);
+		return minecraftArchive(era, version, "client");
+	}
+
+	public Dependency minecraftArchive(String era, String version, String side) {
+		return project.getDependencies().create("uk.omniarchive."+era+":"+side+":"+version);
 	}
 
 	public Dependency mcpArchive(String version, String mcpVersion) {
