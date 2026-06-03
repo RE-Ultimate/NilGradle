@@ -25,8 +25,19 @@ public class MiddleMCPTriplicateReader extends TextMappingsReader {
 	private static Map<String, String> parse(String fields, String methods) {
 		Map<String, String> out = new HashMap<>();
 		for (String file : Arrays.asList(fields, methods)) {
+			boolean firstLine = true;
 			for (String line : file.split("\n")) {
-				String[] entries = line.split(",", 3);
+				if (firstLine) {
+					firstLine = false;
+					continue;
+				}
+				String[] entries = line.split(",", 4);
+				try {
+					int side = Integer.parseInt(entries[2]);
+					if (side != 0 && side != 2) continue; // Only accept client or universal mappings for now
+				} catch (Throwable ignored) {
+					// Otherwise just assume it is fine
+				}
 				out.put(entries[0], entries[1]);
 			}
 		}
