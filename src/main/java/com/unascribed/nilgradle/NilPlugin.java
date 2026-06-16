@@ -222,25 +222,25 @@ public class NilPlugin implements Plugin<Project> {
 			if (gameFiles.size() > 1) throw new IllegalStateException("Multiple game dependencies present! If you want to merge jars together, add the additional jars under the 'jarmod' configuration.");
 			Map<String, MappingSet> targetMappings = new HashMap<>();
 			for (ResolvedArtifact a : targetMappingCfg.getResolvedConfiguration().getResolvedArtifacts()) {
-				loadTargetMappings(targetMappings, a, ms -> ms);
+				loadTargetMappings(targetMappings, a, ms -> ms, mappingsExt.getSide());
 			}
 			for (ResolvedArtifact a : altTargetMappingCfg.getResolvedConfiguration().getResolvedArtifacts()) {
-				loadTargetMappings(targetMappings, a, ms -> ms.reverse());
+				loadTargetMappings(targetMappings, a, MappingSet::reverse, mappingsExt.getSide());
 			}
 			Set<File> workFiles = workMappingCfg.resolve();
 			if (!workFiles.isEmpty()) {
 				if (workFiles.size() > 1) throw new IllegalStateException("Multiple work mappings present!");
 				File workFile = workFiles.iterator().next();
 				log.info("Detecting and loading work mappings from "+workFile);
-				MappingSet workRaw = MappingDetector.detectAndLoad(workFile);
+				MappingSet workRaw = MappingDetector.detectAndLoad(workFile, mappingsExt.getSide());
 				MappingSet work;
-				
+
 				Set<File> viaFiles = viaMappingCfg.resolve();
 				if (!viaFiles.isEmpty()) {
 					if (viaFiles.size() > 1) throw new IllegalStateException("Multiple work mappings present!");
 					File viaFile = viaFiles.iterator().next();
 					log.info("Detecting and loading via mappings from "+viaFile);
-					MappingSet via = MappingDetector.detectAndLoad(viaFile);
+					MappingSet via = MappingDetector.detectAndLoad(viaFile, mappingsExt.getSide());
 					work = MappingSetMerger.create(via, workRaw).merge();
 				} else {
 					work = workRaw;
@@ -346,8 +346,8 @@ public class NilPlugin implements Plugin<Project> {
 		});
 	}
 
-	private void loadTargetMappings(Map<String, MappingSet> targetMappings, ResolvedArtifact a, Function<MappingSet, MappingSet> configurator) {
-		MappingSet tgt = MappingDetector.detectAndLoad(a.getFile(), !"srg".equals(a.getClassifier()));
+	private void loadTargetMappings(Map<String, MappingSet> targetMappings, ResolvedArtifact a, Function<MappingSet, MappingSet> configurator, Side preferredSide) {
+		MappingSet tgt = MappingDetector.detectAndLoad(a.getFile(), !"srg".equals(a.getClassifier()), preferredSide);
 		tgt = configurator.apply(tgt);
 		ModuleVersionIdentifier v = a.getModuleVersion().getId();
 		String name = v.getName();

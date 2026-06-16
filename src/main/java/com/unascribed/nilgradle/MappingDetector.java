@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import org.apache.tools.ant.filters.StringInputStream;
 import org.cadixdev.lorenz.MappingSet;
 import org.cadixdev.lorenz.io.proguard.ProGuardReader;
 import org.cadixdev.lorenz.io.srg.SrgReader;
@@ -33,24 +34,23 @@ public class MappingDetector {
 	private static final Slice SRG_HEADER = Slice.parse("[PK: ]");
 	private static final Slice RETROGUARD_HEADER = Slice.parse("[.option ]");
 
-	public static MappingSet detectAndLoad(File file) {
-		return detectAndLoad(file, true);
+	public static MappingSet detectAndLoad(File file, Side preferredSide) {
+		return detectAndLoad(file, true, preferredSide);
 	}
 
-	public static MappingSet detectAndLoad(File file, boolean resolveTriplicate) {
+	public static MappingSet detectAndLoad(File file, boolean resolveTriplicate, Side preferredSide) {
 		try {
-			return detectAndLoad(new FileInputStream(file), resolveTriplicate);
+			return detectAndLoad(new FileInputStream(file), resolveTriplicate, preferredSide);
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
 	}
 
-	public static MappingSet detectAndLoad(InputStream rawIn) {
-		return detectAndLoad(rawIn, true);
+	public static MappingSet detectAndLoad(InputStream rawIn, Side preferredSide) {
+		return detectAndLoad(rawIn, true, preferredSide);
 	}
 
-	@SuppressWarnings("resource")
-	public static MappingSet detectAndLoad(InputStream rawIn, boolean resolveTriplicate) {
+	public static MappingSet detectAndLoad(InputStream rawIn, boolean resolveTriplicate, Side preferredSide) {
 		try (PushbackInputStream in = new PushbackInputStream(rawIn, 32)) {
 			int testByte = in.read();
 			if (testByte == -1) {
@@ -62,33 +62,30 @@ public class MappingDetector {
 				ZipInputStream zip = new ZipInputStream(in);
 				ZipEntry ze;
 				MappingSet mcpClasses = null;
-				String mcpSrg = null;
+				String mcpJoinedSrg = null;
+				String mcpClientSrg = null;
+				String mcpServerSrg = null;
 				String mcpMethods = null;
 				String mcpFields = null;
 				while ((ze = zip.getNextEntry()) != null) {
 					if ("config/joined.tsrg".equals(ze.getName())) {
 						NilPlugin.log.info("Discovered mcp_config joined.tsrg");
-						return detectAndLoad(zip);
+						return detectAndLoad(zip, preferredSide);
 					} else if ("mappings/mappings.tiny".equals(ze.getName())) {
 						NilPlugin.log.info("Discovered Fabric mappings.tiny");
-						return detectAndLoad(zip);
-					} else if ("conf/client.srg".equals(ze.getName())) {
-						NilPlugin.log.info("Discovered legacy MCP client.srg");
-						if (resolveTriplicate) {
-							mcpSrg = getTextWithoutClosing(zip);
-						} else {
-							return detectAndLoad(zip);
-						}
+						return detectAndLoad(zip, preferredSide);
 					} else if ("conf/joined.srg".equals(ze.getName())) {
 						NilPlugin.log.info("Discovered legacy MCP joined.srg");
-						if (resolveTriplicate) {
-							mcpSrg = getTextWithoutClosing(zip);
-						} else {
-							return detectAndLoad(zip);
-						}
+						mcpJoinedSrg = getTextWithoutClosing(zip);
+					} else if ("conf/client.srg".equals(ze.getName())) {
+						NilPlugin.log.info("Discovered legacy MCP client.srg");
+						mcpClientSrg = getTextWithoutClosing(zip);
+					} else if ("conf/server.srg".equals(ze.getName())) {
+						NilPlugin.log.info("Discovered legacy MCP server.srg");
+						mcpServerSrg = getTextWithoutClosing(zip);
 					} else if ("conf/minecraft.rgs".equals(ze.getName())) {
 						NilPlugin.log.info("Discovered legacy MCP minecraft.rgs");
-						return detectAndLoad(zip);
+						return detectAndLoad(zip, preferredSide);
 					} else if ("conf/classes.csv".equals(ze.getName())) {
 						NilPlugin.log.info("Discovered legacy MCP classes.csv");
 						mcpClasses = new LegacyMCPClassesCSVReader(new InputStreamReader(zip, StandardCharsets.UTF_8)).read();
@@ -101,11 +98,29 @@ public class MappingDetector {
 					}
 				}
 				zip.close();
-				if (mcpSrg != null) {
-					return new MiddleMCPTriplicateReader(new StringReader(mcpSrg), mcpFields, mcpMethods).read();
+
+				String chosenSrg = preferredSide.pickObject(mcpJoinedSrg, mcpClientSrg, mcpServerSrg);
+				Side chosenSide = chosenSrg == null ? null
+						: chosenSrg == mcpJoinedSrg ? Side.JOINED
+						  : chosenSrg == mcpClientSrg ? Side.CLIENT
+							: chosenSrg == mcpServerSrg ? Side.SERVER
+							  : null;
+				if (!resolveTriplicate) {
+					if (chosenSrg != null) {
+						NilPlugin.log.info("Will use {} mappings", chosenSide);
+						return detectAndLoad(new StringInputStream(chosenSrg), preferredSide);
+					}
+					throw new IllegalArgumentException("Cannot find mappings inside ZIP");
+				} else if (chosenSrg != null) {
+					NilPlugin.log.info("Will use triplicate {} mappings", chosenSide);
+					return new MiddleMCPTriplicateReader(new StringReader(chosenSrg), mcpFields, mcpMethods, chosenSide).read();
 				} else if (mcpClasses != null) {
-					new LegacyMCPMethodsCSVReader(new StringReader(mcpMethods)).read(mcpClasses);
-					new LegacyMCPFieldsCSVReader(new StringReader(mcpFields)).read(mcpClasses);
+					if (mcpMethods != null) {
+						new LegacyMCPMethodsCSVReader(new StringReader(mcpMethods)).read(mcpClasses);
+					}
+					if (mcpFields != null) {
+						new LegacyMCPFieldsCSVReader(new StringReader(mcpFields)).read(mcpClasses);
+					}
 					return mcpClasses;
 				}
 				throw new IllegalArgumentException("Cannot find mappings inside ZIP");

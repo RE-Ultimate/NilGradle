@@ -18,11 +18,15 @@ import java.util.Map;
  */
 public class MiddleMCPTriplicateReader extends TextMappingsReader {
 
-	public MiddleMCPTriplicateReader(Reader srgReader, String fields, String methods) {
-		super(srgReader, mappings -> new MiddleMCPTriplicateReader.Processor(mappings, parse(fields, methods)));
+	public MiddleMCPTriplicateReader(Reader srgReader, String fields, String methods, Side side) {
+		this(srgReader, fields, methods, side.ordinal());
 	}
 
-	private static Map<String, String> parse(String fields, String methods) {
+	public MiddleMCPTriplicateReader(Reader srgReader, String fields, String methods, int side) {
+		super(srgReader, mappings -> new MiddleMCPTriplicateReader.Processor(mappings, parse(fields, methods, side)));
+	}
+
+	private static Map<String, String> parse(String fields, String methods, int side) {
 		Map<String, String> out = new HashMap<>();
 		for (String file : Arrays.asList(fields, methods)) {
 			boolean firstLine = true;
@@ -33,10 +37,11 @@ public class MiddleMCPTriplicateReader extends TextMappingsReader {
 				}
 				String[] entries = line.split(",", 4);
 				try {
-					int side = Integer.parseInt(entries[2]);
-					if (side != 0 && side != 2) continue; // Only accept client or universal mappings for now
+					int currSide = Integer.parseInt(entries[2]);
+					if (currSide != side) continue;
 				} catch (Throwable ignored) {
-					// Otherwise just assume it is fine
+					// Skip on parsing errors
+					continue;
 				}
 				out.put(entries[0], entries[1]);
 			}

@@ -12,6 +12,7 @@ public abstract class MappingsExtension {
 	private boolean setViaAlready = false;
 	private boolean setWorkAlready = false;
 
+	private Side side = Side.JOINED;
 	private final MappingSet customMappings = MappingSet.create();
 	
 	public void target(Object dep) {
@@ -33,6 +34,10 @@ public abstract class MappingsExtension {
 		setWorkAlready = true;
 		noTransitive(project.getDependencies().add("nilInternalWorkMapping", dep));
 	}
+
+	public void side(Object side) {
+		this.side = Side.parse(side);
+	}
 	
 	private void noTransitive(Dependency d) {
 		if (d instanceof ModuleDependency) {
@@ -51,5 +56,9 @@ public abstract class MappingsExtension {
 	public void setProject(Project project) {
 		this.project = project;
 	}
-	
+
+	public Side getSide() {
+		return side;
+	}
+
 }
