@@ -500,6 +500,14 @@ public class NilGradleClassRemapper extends ClassRemapper {
 				resetLdcStage();
 				checkWideningMethod(owner, name, descriptor);
 				scanAndMemoizeRemapMethod(owner, name, descriptor);
+				checkWideningMethod(bootstrapMethodHandle.getOwner(), bootstrapMethodHandle.getName(), bootstrapMethodHandle.getDesc());
+				scanAndMemoizeRemapMethod(bootstrapMethodHandle.getOwner(), bootstrapMethodHandle.getName(), bootstrapMethodHandle.getDesc());
+				for (Object arg : bootstrapMethodArguments) {
+					if (!(arg instanceof Handle)) continue;
+					Handle argHandle = (Handle) arg;
+					checkWideningMethod(argHandle.getOwner(), argHandle.getName(), argHandle.getDesc());
+					scanAndMemoizeRemapMethod(argHandle.getOwner(), argHandle.getName(), argHandle.getDesc());
+				}
 				super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
 			}
 
