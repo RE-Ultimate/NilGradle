@@ -200,40 +200,42 @@ public class NilGradleClassRemapper extends ClassRemapper {
 		return new MethodRemapper(methodVisitor, remapper) {
 			@Override
 			protected AnnotationVisitor createAnnotationRemapper(String descriptor, AnnotationVisitor annotationVisitor) {
-				switch (descriptor) {
-					case "Lnilloader/api/lib/mini/annotation/Patch$Method;":
-					case "Lnilloader/api/lib/mini/annotation/Patch$Methods;":
-						return new AnnotationRemapper(Opcodes.ASM9, descriptor, annotationVisitor, remapper) {
-							@Override
-							public void visit(String name, Object value) {
-								if (name.equals("value")) {
-									try {
-										MethodSignature sig = MethodSignature.of(value.toString());
-										if (classTarget == null) {
-											NilPlugin.log.info("Found MiniTransformer with no Class annotation; patchers in a transformer like this cannot be remapped! You can ignore this if you are patching unobfuscated code.");
-											return;
+				if (descriptor != null) {
+					switch (descriptor) {
+						case "Lnilloader/api/lib/mini/annotation/Patch$Method;":
+						case "Lnilloader/api/lib/mini/annotation/Patch$Methods;":
+							return new AnnotationRemapper(Opcodes.ASM9, descriptor, annotationVisitor, remapper) {
+								@Override
+								public void visit(String name, Object value) {
+									if (name.equals("value")) {
+										try {
+											MethodSignature sig = MethodSignature.of(value.toString());
+											if (classTarget == null) {
+												NilPlugin.log.info("Found MiniTransformer with no Class annotation; patchers in a transformer like this cannot be remapped! You can ignore this if you are patching unobfuscated code.");
+												return;
+											}
+											value = remapper.mapMethodName(classTarget, sig.getName(), sig.getDescriptor().toString()) + remapper.mapMethodDesc(sig.getDescriptor().toString());
+										} catch (IllegalArgumentException | IndexOutOfBoundsException e) {
+											NilPlugin.log.error("@Patch.Method values must be full binary descriptors; found \"" + value + "\" in " + className + " - it will not be remapped");
 										}
-										value = remapper.mapMethodName(classTarget, sig.getName(), sig.getDescriptor().toString())+remapper.mapMethodDesc(sig.getDescriptor().toString());
-									} catch (IllegalArgumentException | IndexOutOfBoundsException e) {
-										NilPlugin.log.error("@Patch.Method values must be full binary descriptors; found \""+value+"\" in "+className+" - it will not be remapped");
 									}
+									super.visit(name, value);
 								}
-								super.visit(name, value);
-							}
-							
-							@Override
-							public AnnotationVisitor visitAnnotation(String name, String subDescriptor) {
-								return this;
-							}
-							
-							@Override
-							public AnnotationVisitor visitArray(String name) {
-								return this;
-							}
-						};
-					default:
-						return super.createAnnotationRemapper(descriptor, annotationVisitor);
+
+								@Override
+								public AnnotationVisitor visitAnnotation(String name, String subDescriptor) {
+									return this;
+								}
+
+								@Override
+								public AnnotationVisitor visitArray(String name) {
+									return this;
+								}
+							};
+					}
 				}
+
+				return super.createAnnotationRemapper(descriptor, annotationVisitor);
 			}
 			
 			private int stage = 0;
