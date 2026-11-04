@@ -612,6 +612,7 @@ public class NilPlugin implements Plugin<Project> {
 	}
 
 	private JsonObject toJson(ClassMapping<?, ?> cm, Predicate<Mapping<?, ?>> filter) {
+		boolean hasRemaps = false;
 		JsonObject obj = new JsonObject();
 		obj.put("from", cm.getObfuscatedName());
 		obj.put("to", cm.getDeobfuscatedName());
@@ -622,7 +623,10 @@ public class NilPlugin implements Plugin<Project> {
 				if (en != null) inner.add(en);
 			}
 		}
-		if (!inner.isEmpty()) obj.put("inner-classes", inner);
+		if (!inner.isEmpty()) {
+			obj.put("inner-classes", inner);
+			hasRemaps = true;
+		}
 		JsonObject methods = new JsonObject();
 		for (MethodMapping mm : cm.getMethodMappings()) {
 			if (filter.test(mm)) {
@@ -632,7 +636,10 @@ public class NilPlugin implements Plugin<Project> {
 				methods.put(from, to);
 			}
 		}
-		if (!methods.isEmpty()) obj.put("methods", methods);
+		if (!methods.isEmpty()) {
+			obj.put("methods", methods);
+			hasRemaps = true;
+		}
 		JsonObject fields = new JsonObject();
 		for (FieldMapping fm : cm.getFieldMappings()) {
 			if (filter.test(fm)) {
@@ -642,8 +649,11 @@ public class NilPlugin implements Plugin<Project> {
 				fields.put(from, to);
 			}
 		}
-		if (!fields.isEmpty()) obj.put("fields", fields);
-//		if (cm.getFullObfuscatedName().equals(cm.getFullDeobfuscatedName()) && obj.size() == 2) return null;
+		if (!fields.isEmpty()) {
+			obj.put("fields", fields);
+			hasRemaps = true;
+		}
+		if (!hasRemaps && cm.getFullObfuscatedName().equals(cm.getFullDeobfuscatedName())) return null;
 		return obj;
 	}
 	

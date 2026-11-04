@@ -248,13 +248,26 @@ public class NilGradleClassRemapper extends ClassRemapper {
 			public void visitLdcInsn(Object value) {
 				if (value instanceof String) {
 					if (stage == 0) {
+						String str = value.toString();
 						try {
-							if (mappings.computeClassMapping(value.toString()).isPresent()) {
-								stage = 1;
-								owner = value.toString();
-								remappedOwner = remapper.mapType(value.toString());
+							MethodDescriptor.of(str);
+							super.visitLdcInsn(remapper.mapMethodDesc(str));
+							return;
+						} catch (IllegalArgumentException | IllegalStateException | IndexOutOfBoundsException e) {
+							try {
+								FieldType.of(str);
+								super.visitLdcInsn(remapper.mapDesc(str));
 								return;
+							} catch (IllegalArgumentException | IllegalStateException | IndexOutOfBoundsException e2) {
 							}
+						}
+
+						try {
+							stage = 1;
+							owner = str;
+							remappedOwner = mappings.computeClassMapping(owner).isPresent()
+									? remapper.mapType(owner) : owner;
+							return;
 						} catch (IllegalArgumentException | IndexOutOfBoundsException e) {
 							// ignore
 						}
