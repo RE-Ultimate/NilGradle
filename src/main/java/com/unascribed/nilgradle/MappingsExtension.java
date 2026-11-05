@@ -1,5 +1,6 @@
 package com.unascribed.nilgradle;
 
+import org.cadixdev.lorenz.MappingSet;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.ModuleDependency;
@@ -10,6 +11,8 @@ public abstract class MappingsExtension {
 	
 	private boolean setViaAlready = false;
 	private boolean setWorkAlready = false;
+
+	private final MappingSet customMappings = MappingSet.create();
 	
 	public void target(Object dep) {
 		noTransitive(project.getDependencies().add("nilInternalTargetMapping", dep));
@@ -35,6 +38,14 @@ public abstract class MappingsExtension {
 		if (d instanceof ModuleDependency) {
 			((ModuleDependency)d).setTransitive(false);
 		}
+	}
+
+	public void mapClass(String obf, String deobf) {
+		customMappings.getOrCreateClassMapping(obf).setDeobfuscatedName(deobf);
+	}
+
+	public MappingSet getCustomMappings() {
+		return customMappings;
 	}
 
 	public void setProject(Project project) {

@@ -245,6 +245,9 @@ public class NilPlugin implements Plugin<Project> {
 				} else {
 					work = workRaw;
 				}
+
+				work = MappingSetMerger.create(workRaw, mappingsExt.getCustomMappings()).merge();
+
 				saveDebugMappings(work, "work.tsrg");
 				for (Map.Entry<String, MappingSet> en : targetMappings.entrySet()) {
 					MappingSet workToTarget = MappingSetMerger.create(work.reverse(), en.getValue()).merge();
