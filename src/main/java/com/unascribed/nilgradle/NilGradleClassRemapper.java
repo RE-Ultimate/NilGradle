@@ -245,6 +245,18 @@ public class NilGradleClassRemapper extends ClassRemapper {
 			private Integer arg;
 			
 			@Override
+			public void visitLabel(Label label) {
+				resetLdcStage();
+				super.visitLabel(label);
+			}
+			
+			@Override
+			public void visitFrame(int type, int numLocal, Object[] local, int numStack, Object[] stack) {
+				resetLdcStage();
+				super.visitFrame(type, numLocal, local, numStack, stack);
+			}
+			
+			@Override
 			public void visitLdcInsn(Object value) {
 				if (value instanceof String) {
 					if (stage == 0) {
