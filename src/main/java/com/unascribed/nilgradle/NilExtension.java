@@ -82,7 +82,7 @@ public abstract class NilExtension {
 	}
 	
 	public Dependency forgeFrankenmapping(Object classMappingSpec, Object memberMappingSpec) {
-		return forgeFrankenmapping(classMappingSpec, memberMappingSpec, null);
+		return forgeFrankenmapping(classMappingSpec, memberMappingSpec, Side.JOINED);
 	}
 	
 	public Dependency forgeFrankenmapping(Object classMappingSpec, Object memberMappingSpec, Object preferredSide) {

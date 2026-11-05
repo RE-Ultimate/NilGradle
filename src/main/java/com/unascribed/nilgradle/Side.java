@@ -19,7 +19,7 @@ public enum Side {
 
     public static Side parse(Object obj) {
         if (obj == null) {
-            return null;
+            throw new IllegalArgumentException("Object is null");
         } else if (obj instanceof Side) {
             return (Side) obj;
         } else if (obj instanceof Integer) {
