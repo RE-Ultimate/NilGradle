@@ -82,6 +82,10 @@ public abstract class NilExtension {
 	}
 	
 	public Dependency forgeFrankenmapping(Object classMappingSpec, Object memberMappingSpec) {
+		return forgeFrankenmapping(classMappingSpec, memberMappingSpec, Side.JOINED);
+	}
+	
+	public Dependency forgeFrankenmapping(Object classMappingSpec, Object memberMappingSpec, Object preferredSide) {
 		ModuleDependency classMapping = (ModuleDependency)project.getDependencies().create(classMappingSpec);
 		ModuleDependency memberMapping = (ModuleDependency)project.getDependencies().create(memberMappingSpec);
 		ResolvedArtifact classMappingA = resolve(classMapping);
@@ -90,8 +94,8 @@ public abstract class NilExtension {
 		File cache = new File(project.getLayout().getBuildDirectory().getAsFile().get(), "nil/cache/"+filename+".tsrg");
 		if (!cache.exists()) {
 			cache.getParentFile().mkdirs();
-			MappingSet classMappings = MappingDetector.detectAndLoad(classMappingA.getFile());
-			MappingSet memberMappings = MappingDetector.detectAndLoad(memberMappingA.getFile());
+			MappingSet classMappings = MappingDetector.detectAndLoad(classMappingA.getFile(), Side.parse(preferredSide));
+			MappingSet memberMappings = MappingDetector.detectAndLoad(memberMappingA.getFile(), Side.parse(preferredSide));
 			MappingSet franken = MappingSet.create();
 			for (TopLevelClassMapping tlcm : classMappings.getTopLevelClassMappings()) {
 				copy(tlcm, memberMappings, franken);
