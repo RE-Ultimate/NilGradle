@@ -16,7 +16,7 @@ base {
 repositories {
 	mavenCentral()
 	maven {
-		url 'https://repo.sleeping.town'
+		url 'https://raw.githubusercontent.com/RE-Ultimate/maven/main'
 	}
 	maven {
 		url 'https://maven.fabricmc.net/'
@@ -60,11 +60,7 @@ gradlePlugin {
 publishing {
 	repositories {
 		maven {
-			url "https://repo-api.sleeping.town/"
-			credentials {
-				username project.hasProperty("publish-username") ? project.getProperty("publish-username") : null
-				password project.hasProperty("publish-password") ? project.getProperty("publish-password") : null
-			}
+			url uri(layout.buildDirectory.dir('reultimate-maven'))
 		}
 	}
 }
